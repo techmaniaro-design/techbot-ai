@@ -11,7 +11,6 @@ import streamlit as st
 from openai import OpenAI
 from duckduckgo_search import DDGS
 from supabase import create_client, Client
-from streamlit_cookies_manager import EncryptedCookieManager
 
 # --- CONFIGURARE INIȚIALĂ ---
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
@@ -19,89 +18,55 @@ st.title("🤖 TechBot AI")
 st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 # ====================================================================
-# --- SISTEM DE COOKIES PENTRU PERSISTENȚA SESIUNII ---
-# ====================================================================
-cookies = EncryptedCookieManager(
-    prefix="techbot",
-    # O parolă standard pentru a cripta datele în browser-ul utilizatorului
-    password=st.secrets.get("COOKIE_PASSWORD", "techbot_super_secret_password_12345")
-)
-if not cookies.ready():
-    # Oprește execuția o fracțiune de secundă pentru a apuca să citească browser-ul
-    st.stop()
-# ====================================================================
-
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
 cheie_groq = st.secrets["GROQ_API_KEY"]
+# ====================================================================
 
 client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE ---
+# --- SISTEM DE AUTENTIFICARE STABIL ---
 # ====================================================================
-# 1. Încercăm să preluăm datele direct din Cookie-ul browserului
 if "user_id" not in st.session_state: 
-    val = cookies.get("user_id")
-    st.session_state.user_id = val if val else None
-
+    st.session_state.user_id = None
 if "user_email" not in st.session_state: 
-    val = cookies.get("user_email")
-    st.session_state.user_email = val if val else None
-
-# 2. Container gol pentru a putea ascunde ecranul de login instant
-login_container = st.empty()
+    st.session_state.user_email = None
 
 if st.session_state.user_id is None:
-    with login_container.container():
-        st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
-        
-        tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
-        
-        with tab_login:
-            email_in = st.text_input("Email", key="login_email")
-            pass_in = st.text_input("Parolă", type="password", key="login_pass")
-            if st.button("Loghează-te", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
-                    st.session_state.user_id = res.user.id
-                    st.session_state.user_email = res.user.email
-                    
-                    # Salvăm datele în browser pentru viitoarele Refresh-uri!
-                    cookies["user_id"] = res.user.id
-                    cookies["user_email"] = res.user.email
-                    cookies.save()
-                    
-                    st.success("✅ Autentificare reușită!")
-                    login_container.empty() # Facem ecranul de login să dispară
-                except Exception:
-                    st.error("❌ Eroare: Email sau parolă incorecte.")
-                    
-        with tab_register:
-            email_up = st.text_input("Email ", key="reg_email")
-            pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
-            if st.button("Creează Cont", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
-                    st.session_state.user_id = res.user.id
-                    st.session_state.user_email = res.user.email
-                    
-                    # Salvăm datele în browser!
-                    cookies["user_id"] = res.user.id
-                    cookies["user_email"] = res.user.email
-                    cookies.save()
-                    
-                    st.success("✅ Cont creat cu succes!")
-                    login_container.empty() # Facem ecranul de login să dispară
-                except Exception as e:
-                    st.error(f"Eroare la creare cont: {e}")
-                    
-    # Dacă nu s-a logat cu succes, oprim restul aplicației aici
-    if st.session_state.user_id is None:
-        st.stop() 
+    st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
+    
+    tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
+    
+    with tab_login:
+        email_in = st.text_input("Email", key="login_email")
+        pass_in = st.text_input("Parolă", type="password", key="login_pass")
+        if st.button("Loghează-te", use_container_width=True):
+            try:
+                res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
+                st.session_state.user_id = res.user.id
+                st.session_state.user_email = res.user.email
+                st.rerun()
+            except Exception:
+                st.error("❌ Eroare: Email sau parolă incorecte.")
+                
+    with tab_register:
+        email_up = st.text_input("Email", key="reg_email")
+        pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
+        if st.button("Creează Cont", use_container_width=True):
+            try:
+                res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
+                st.session_state.user_id = res.user.id
+                st.session_state.user_email = res.user.email
+                st.success("✅ Cont creat cu succes! Te conectăm imediat...")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Eroare la creare cont: {e}")
+                
+    st.stop() 
 
-# --- APLICAȚIA PRINCIPALĂ (Rulează doar după Logare) ---
+# --- APLICAȚIA PRINCIPALĂ (DOAR PENTRU UTILIZATORII LOGAȚI) ---
 USER_ID = st.session_state.user_id
 
 def obtine_lista_conversatii():
@@ -186,11 +151,6 @@ with st.sidebar:
                 st.warning("Parola trebuie să aibă minim 6 caractere.")
 
     if st.button("🚪 Deconectare", use_container_width=True):
-        # Ștergem datele din browser la deconectare
-        cookies["user_id"] = ""
-        cookies["user_email"] = ""
-        cookies.save()
-        
         st.session_state.user_id = None
         st.session_state.user_email = None
         st.session_state.current_chat_id = None
