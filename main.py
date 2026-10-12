@@ -23,7 +23,7 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 if "session_id" not in st.session_state:
-    st.session_state.session_id = "utilizator_test_1"
+    st.session_state.session_id = str(uuid.uuid4())
 
 # --- FUNCȚII DB ---
 def salveaza_mesaj_db(role, content):
