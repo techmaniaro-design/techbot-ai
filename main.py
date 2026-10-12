@@ -16,13 +16,8 @@ st.caption("Asistent tehnic cu memorie permanentă, căutare Web și analiză co
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 
 # TE ROG SĂ PUI CHEILE TALE AICI ÎNTRE GHILIMELE:
-cheie_baza_date = "cheie_stearsa_pentru_securitate"
-cheie_groq = "cheie_stearsa_pentru_securitate"
-# ====================================================================
-
-if cheie_baza_date.startswith("PUNE_AICI") or cheie_groq.startswith("PUNE_AICI"):
-    st.error("⚠️ Pune cheile tale reale la liniile 20 și 21!")
-    st.stop()
+cheie_baza_date = st.secrets["SUPABASE_KEY"]
+cheie_groq = st.secrets["GROQ_API_KEY"]
 
 client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
