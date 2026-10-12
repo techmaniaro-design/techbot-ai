@@ -2,6 +2,7 @@ import os
 import io
 import json
 import uuid
+import time
 import requests
 import PyPDF2
 import docx2txt
@@ -15,13 +16,23 @@ import extra_streamlit_components as stx
 
 # --- CONFIGURARE INIȚIALĂ ---
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
-st.title("🤖 TechBot AI")
-st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 # ====================================================================
-# --- MANAGER DE COOKIES ---
+# --- HACK PENTRU REFRESH ȘI ASCUNDEREA COMPONENTEI URÂTE ---
 # ====================================================================
-cookie_manager = stx.CookieManager(key="cookie_manager")
+# Punem managerul direct în bara laterală ca să nu lase spații pe centru
+with st.sidebar:
+    cookie_manager = stx.CookieManager(key="cookie_manager")
+
+# TRUCUL SUPREM: La orice apăsare de F5, punem aplicația pe pauză 0.5 secunde 
+# ca să aibă timp browserul să aducă cookie-ul, apoi o reîncărcăm invizibil!
+if "prima_incarcare" not in st.session_state:
+    st.session_state.prima_incarcare = True
+    time.sleep(0.5) 
+    st.rerun()
+
+st.title("🤖 TechBot AI")
+st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -31,13 +42,14 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE CU PERSISTENȚĂ ---
+# --- SISTEM DE AUTENTIFICARE ---
 # ====================================================================
 if "user_id" not in st.session_state: 
     st.session_state.user_id = None
 if "user_email" not in st.session_state: 
     st.session_state.user_email = None
 
+# Citim cookie-ul. Datorită pauzei de 0.5s de mai sus, acum va avea timp să îl citească!
 c_id = cookie_manager.get(cookie="techbot_uid")
 c_email = cookie_manager.get(cookie="techbot_email")
 
@@ -45,7 +57,6 @@ if c_id and st.session_state.user_id is None:
     st.session_state.user_id = c_id
     st.session_state.user_email = c_email
 
-# Container gol pentru a face ecranul de login să dispară instant
 login_container = st.empty()
 
 if st.session_state.user_id is None:
@@ -66,8 +77,6 @@ if st.session_state.user_id is None:
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
-                    
-                    st.success("✅ Autentificare reușită! (Se încarcă...)")
                     st.rerun()
                 except Exception:
                     st.error("❌ Eroare: Email sau parolă incorecte.")
@@ -84,8 +93,6 @@ if st.session_state.user_id is None:
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
-                    
-                    st.success("✅ Cont creat cu succes! (Se încarcă...)")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Eroare la creare cont: {e}")
@@ -93,7 +100,7 @@ if st.session_state.user_id is None:
     st.stop() 
 
 # ====================================================================
-# --- APLICAȚIA PRINCIPALĂ (Rulează doar după Logare) ---
+# --- APLICAȚIA PRINCIPALĂ ---
 # ====================================================================
 USER_ID = st.session_state.user_id
 
