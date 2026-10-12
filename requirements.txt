@@ -5,3 +5,5 @@ supabase
 requests
 PyPDF2
 docx2txt
+pytesseract
+Pillow
