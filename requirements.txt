@@ -3,3 +3,5 @@ openai
 duckduckgo-search
 supabase
 requests
+PyPDF2
+docx2txt
