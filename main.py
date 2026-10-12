@@ -9,6 +9,7 @@ import docx2txt
 import pytesseract
 from PIL import Image
 import streamlit as st
+import streamlit.components.v1 as components
 from openai import OpenAI
 from duckduckgo_search import DDGS
 from supabase import create_client, Client
@@ -18,7 +19,7 @@ import extra_streamlit_components as stx
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
 
 # ====================================================================
-# --- MANAGER DE COOKIES ---
+# --- HACK PENTRU REFRESH ȘI COOKIES ---
 # ====================================================================
 with st.sidebar:
     cookie_manager = stx.CookieManager(key="cookie_manager")
@@ -45,15 +46,9 @@ if "user_id" not in st.session_state:
     st.session_state.user_id = None
 if "user_email" not in st.session_state: 
     st.session_state.user_email = None
-if "is_logged_out" not in st.session_state:
-    st.session_state.is_logged_out = False
 
 c_id = cookie_manager.get(cookie="techbot_uid")
 c_email = cookie_manager.get(cookie="techbot_email")
-
-if st.session_state.is_logged_out:
-    c_id = None
-    c_email = None
 
 if c_id and st.session_state.user_id is None:
     st.session_state.user_id = c_id
@@ -74,15 +69,11 @@ if st.session_state.user_id is None:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
                     
-                    # Salvare corectă cu chei unice (rezolvă eroarea de la linia 111)
-                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60, key="login_uid")
-                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60, key="login_email")
+                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60)
+                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60)
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
-                    st.session_state.is_logged_out = False 
-                    
-                    time.sleep(0.5) # Oferim timp browserului să scrie cookie-ul
                     st.rerun()
                 except Exception:
                     st.error("❌ Eroare: Email sau parolă incorecte.")
@@ -94,14 +85,11 @@ if st.session_state.user_id is None:
                 try:
                     res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
                     
-                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60, key="reg_uid")
-                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60, key="reg_email")
+                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60)
+                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60)
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
-                    st.session_state.is_logged_out = False
-                    
-                    time.sleep(0.5)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Eroare la creare cont: {e}")
@@ -194,19 +182,23 @@ with st.sidebar:
             else:
                 st.warning("Parola trebuie să aibă minim 6 caractere.")
 
+    # ==========================================================
+    # SOLUȚIA NUCLEARĂ PENTRU DECONECTARE
+    # ==========================================================
     if st.button("🚪 Deconectare", use_container_width=True):
-        cookie_manager.delete("techbot_uid", key="del_uid")
-        cookie_manager.delete("techbot_email", key="del_email")
+        # 1. Golim memoria internă
+        st.session_state.clear()
         
-        st.session_state.user_id = None
-        st.session_state.user_email = None
-        st.session_state.current_chat_id = None
-        st.session_state.mesaje = []
-        st.session_state.fisiere_procesate = []
-        st.session_state.is_logged_out = True
-        
-        time.sleep(0.5)
-        st.rerun()
+        # 2. Injectăm JavaScript care extermină cookie-urile și dă refresh la pagină automat
+        js_code = """
+        <script>
+            document.cookie = "techbot_uid=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            document.cookie = "techbot_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            window.parent.location.reload();
+        </script>
+        """
+        components.html(js_code, height=0)
+        st.stop()
         
     st.divider()
     
