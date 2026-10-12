@@ -1,1 +1,2 @@
 tesseract-ocr
+streamlit-cookies-manager
