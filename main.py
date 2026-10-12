@@ -18,14 +18,11 @@ import extra_streamlit_components as stx
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
 
 # ====================================================================
-# --- HACK PENTRU REFRESH ȘI ASCUNDEREA COMPONENTEI URÂTE ---
+# --- HACK PENTRU REFRESH ȘI COOKIES ---
 # ====================================================================
-# Punem managerul direct în bara laterală ca să nu lase spații pe centru
 with st.sidebar:
     cookie_manager = stx.CookieManager(key="cookie_manager")
 
-# TRUCUL SUPREM: La orice apăsare de F5, punem aplicația pe pauză 0.5 secunde 
-# ca să aibă timp browserul să aducă cookie-ul, apoi o reîncărcăm invizibil!
 if "prima_incarcare" not in st.session_state:
     st.session_state.prima_incarcare = True
     time.sleep(0.5) 
@@ -48,10 +45,17 @@ if "user_id" not in st.session_state:
     st.session_state.user_id = None
 if "user_email" not in st.session_state: 
     st.session_state.user_email = None
+if "is_logged_out" not in st.session_state:
+    st.session_state.is_logged_out = False
 
-# Citim cookie-ul. Datorită pauzei de 0.5s de mai sus, acum va avea timp să îl citească!
+# Citim cookie-ul
 c_id = cookie_manager.get(cookie="techbot_uid")
 c_email = cookie_manager.get(cookie="techbot_email")
+
+# Dacă utilizatorul tocmai a dat "Deconectare", IGNORĂM cookie-ul vechi!
+if st.session_state.is_logged_out:
+    c_id = None
+    c_email = None
 
 if c_id and st.session_state.user_id is None:
     st.session_state.user_id = c_id
@@ -77,6 +81,7 @@ if st.session_state.user_id is None:
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
+                    st.session_state.is_logged_out = False # Anulăm flag-ul de deconectare
                     st.rerun()
                 except Exception:
                     st.error("❌ Eroare: Email sau parolă incorecte.")
@@ -93,6 +98,7 @@ if st.session_state.user_id is None:
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
+                    st.session_state.is_logged_out = False
                     st.rerun()
                 except Exception as e:
                     st.error(f"Eroare la creare cont: {e}")
@@ -186,14 +192,17 @@ with st.sidebar:
                 st.warning("Parola trebuie să aibă minim 6 caractere.")
 
     if st.button("🚪 Deconectare", use_container_width=True):
+        # 1. Ștergem cookie-urile din browser
         cookie_manager.delete("techbot_uid")
         cookie_manager.delete("techbot_email")
         
+        # 2. Ștergem sesiunea și activăm scutul anti-relogare
         st.session_state.user_id = None
         st.session_state.user_email = None
         st.session_state.current_chat_id = None
         st.session_state.mesaje = []
         st.session_state.fisiere_procesate = []
+        st.session_state.is_logged_out = True
         st.rerun()
         
     st.divider()
