@@ -27,7 +27,7 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE ---
+# --- SISTEM DE AUTENTIFICARE DIRECTĂ (FĂRĂ CONFIRMARE EMAIL) ---
 # ====================================================================
 if "user_id" not in st.session_state: st.session_state.user_id = None
 if "user_email" not in st.session_state: st.session_state.user_email = None
@@ -47,22 +47,25 @@ if st.session_state.user_id is None:
                 st.session_state.user_email = res.user.email
                 st.rerun()
             except Exception:
-                st.error("Eroare: Email sau parolă incorecte.")
+                st.error("❌ Eroare: Email sau parolă incorecte.")
                 
     with tab_register:
         email_up = st.text_input("Email", key="reg_email")
         pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
         if st.button("Creează Cont", use_container_width=True):
             try:
+                # Creăm contul
                 res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
-                st.success("Cont creat cu succes! Acum te poți loga din tab-ul 'Intră în cont'.")
+                # Fiindcă am dezactivat confirmarea, îl logăm direct pe utilizator!
+                st.session_state.user_id = res.user.id
+                st.session_state.user_email = res.user.email
+                st.success("✅ Cont creat cu succes! Intrăm în aplicație...")
+                st.rerun()
             except Exception as e:
-                st.error(f"Eroare la creare: {e}")
+                st.error(f"Eroare la creare cont: {e}")
                 
-    # Oprim execuția restului de cod dacă utilizatorul nu este logat!
     st.stop() 
 
-# Dacă a trecut de blocul de mai sus, înseamnă că e logat cu succes!
 USER_ID = st.session_state.user_id
 
 # --- FUNCȚII BAZĂ DE DATE ---
@@ -138,7 +141,6 @@ if "fisiere_procesate" not in st.session_state: st.session_state.fisiere_procesa
 
 # --- SIDEBAR (MENIU LATERAL) ---
 with st.sidebar:
-    # Setăm butonul de deconectare
     st.caption(f"👤 Logat ca: **{st.session_state.user_email}**")
     if st.button("🚪 Deconectare", use_container_width=True):
         st.session_state.user_id = None
