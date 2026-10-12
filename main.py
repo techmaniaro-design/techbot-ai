@@ -19,14 +19,9 @@ st.title("🤖 TechBot AI")
 st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 # ====================================================================
-# --- MANAGER DE COOKIES (Fără Cache = Fără avertismente galbene!) ---
+# --- MANAGER DE COOKIES ---
 # ====================================================================
-# Am eliminat @st.cache_resource și i-am dat o cheie unică.
 cookie_manager = stx.CookieManager(key="cookie_manager")
-
-# Oprim execuția până când browser-ul trimite cookie-urile!
-if not cookie_manager.ready():
-    st.stop()
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -36,7 +31,7 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE CU PERSISTENȚĂ REALĂ ---
+# --- SISTEM DE AUTENTIFICARE CU PERSISTENȚĂ ---
 # ====================================================================
 if "user_id" not in st.session_state: 
     st.session_state.user_id = None
