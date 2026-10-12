@@ -19,9 +19,9 @@ st.title("🤖 TechBot AI")
 st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 # ====================================================================
-# --- MANAGER DE COOKIES (Modern și Stabil) ---
+# --- MANAGER DE COOKIES ---
 # ====================================================================
-# Inițializăm controller-ul pentru a citi din browser
+# Trebuie inițializat fix la început pentru a putea "vorbi" cu browserul tău
 controller = CookieController()
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
@@ -32,64 +32,68 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE CU PERSISTENȚĂ ---
+# --- SISTEM DE AUTENTIFICARE INTELIGENT ---
 # ====================================================================
-# 1. Citim cookie-urile salvate în browser
-cookie_user_id = controller.get('techbot_user_id')
-cookie_user_email = controller.get('techbot_user_email')
-
 if "user_id" not in st.session_state: 
-    st.session_state.user_id = cookie_user_id if cookie_user_id else None
+    st.session_state.user_id = None
 if "user_email" not in st.session_state: 
-    st.session_state.user_email = cookie_user_email if cookie_user_email else None
+    st.session_state.user_email = None
 
-# Container gol pentru a face ecranul de login să dispară instant
-login_container = st.empty()
+# AICI E MAGIA: Citim întârziat cookie-ul din browser
+cookie_id = controller.get('techbot_user_id')
+cookie_email = controller.get('techbot_user_email')
 
+# Dacă browser-ul a trimis cookie-ul, dar noi suntem încă "nelogați", ne logăm automat!
+if cookie_id and st.session_state.user_id is None:
+    st.session_state.user_id = cookie_id
+    st.session_state.user_email = cookie_email
+    st.rerun() # Reîncărcăm pagina instant ca să ascundem ecranul de Login
+
+# Ecranul de Login (se afișează doar dacă cookie-ul e gol)
 if st.session_state.user_id is None:
-    with login_container.container():
-        st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
-        
-        tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
-        
-        with tab_login:
-            email_in = st.text_input("Email", key="login_email")
-            pass_in = st.text_input("Parolă", type="password", key="login_pass")
-            if st.button("Loghează-te", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
-                    st.session_state.user_id = res.user.id
-                    st.session_state.user_email = res.user.email
-                    
-                    # Salvăm logarea în browser timp de 30 de zile (exprimat în secunde)
-                    controller.set('techbot_user_id', res.user.id, max_age=30*24*60*60)
-                    controller.set('techbot_user_email', res.user.email, max_age=30*24*60*60)
-                    
-                    st.success("✅ Autentificare reușită! (Se încarcă...)")
-                    st.rerun()
-                except Exception:
-                    st.error("❌ Eroare: Email sau parolă incorecte.")
-                    
-        with tab_register:
-            email_up = st.text_input("Email ", key="reg_email")
-            pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
-            if st.button("Creează Cont", use_container_width=True):
-                try:
-                    res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
-                    st.session_state.user_id = res.user.id
-                    st.session_state.user_email = res.user.email
-                    
-                    # Salvăm logarea în browser 
-                    controller.set('techbot_user_id', res.user.id, max_age=30*24*60*60)
-                    controller.set('techbot_user_email', res.user.email, max_age=30*24*60*60)
-                    
-                    st.success("✅ Cont creat cu succes! (Se încarcă...)")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Eroare la creare cont: {e}")
-                    
-    # Dacă nu s-a logat, oprim codul aici
-    st.stop() 
+    st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
+    
+    tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
+    
+    with tab_login:
+        email_in = st.text_input("Email", key="login_email")
+        pass_in = st.text_input("Parolă", type="password", key="login_pass")
+        if st.button("Loghează-te", use_container_width=True):
+            try:
+                res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
+                
+                # Salvăm datele în browser-ul utilizatorului (valabile 30 de zile)
+                controller.set('techbot_user_id', res.user.id, max_age=30*24*60*60)
+                controller.set('techbot_user_email', res.user.email, max_age=30*24*60*60)
+                
+                st.session_state.user_id = res.user.id
+                st.session_state.user_email = res.user.email
+                
+                st.success("✅ Autentificare reușită! Se încarcă...")
+                st.rerun()
+            except Exception:
+                st.error("❌ Eroare: Email sau parolă incorecte.")
+                
+    with tab_register:
+        email_up = st.text_input("Email ", key="reg_email")
+        pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
+        if st.button("Creează Cont", use_container_width=True):
+            try:
+                res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
+                
+                # Salvăm datele în browser la creare cont
+                controller.set('techbot_user_id', res.user.id, max_age=30*24*60*60)
+                controller.set('techbot_user_email', res.user.email, max_age=30*24*60*60)
+                
+                st.session_state.user_id = res.user.id
+                st.session_state.user_email = res.user.email
+                
+                st.success("✅ Cont creat cu succes! Se încarcă...")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Eroare la creare cont: {e}")
+                
+    st.stop() # Dacă nu e logat, nu rulăm restul codului
 
 # ====================================================================
 # --- APLICAȚIA PRINCIPALĂ (Rulează doar după Logare) ---
@@ -178,7 +182,7 @@ with st.sidebar:
                 st.warning("Parola trebuie să aibă minim 6 caractere.")
 
     if st.button("🚪 Deconectare", use_container_width=True):
-        # Ștergem cookie-urile din browser!
+        # Ștergem cookie-urile definitiv la deconectare!
         controller.remove('techbot_user_id')
         controller.remove('techbot_user_email')
         
