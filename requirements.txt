@@ -7,4 +7,3 @@ PyPDF2
 docx2txt
 pytesseract
 Pillow
-streamlit-cookies-manager
