@@ -11,6 +11,7 @@ import streamlit as st
 from openai import OpenAI
 from duckduckgo_search import DDGS
 from supabase import create_client, Client
+from streamlit_cookies_manager import EncryptedCookieManager
 
 # --- CONFIGURARE INIȚIALĂ ---
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
@@ -18,86 +19,116 @@ st.title("🤖 TechBot AI")
 st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 # ====================================================================
+# --- SISTEM DE COOKIES PENTRU PERSISTENȚA SESIUNII ---
+# ====================================================================
+cookies = EncryptedCookieManager(
+    prefix="techbot",
+    # O parolă standard pentru a cripta datele în browser-ul utilizatorului
+    password=st.secrets.get("COOKIE_PASSWORD", "techbot_super_secret_password_12345")
+)
+if not cookies.ready():
+    # Oprește execuția o fracțiune de secundă pentru a apuca să citească browser-ul
+    st.stop()
+# ====================================================================
+
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
 cheie_groq = st.secrets["GROQ_API_KEY"]
-# ====================================================================
 
 client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE SOLID ---
+# --- SISTEM DE AUTENTIFICARE ---
 # ====================================================================
+# 1. Încercăm să preluăm datele direct din Cookie-ul browserului
 if "user_id" not in st.session_state: 
-    st.session_state.user_id = None
+    val = cookies.get("user_id")
+    st.session_state.user_id = val if val else None
+
 if "user_email" not in st.session_state: 
-    st.session_state.user_email = None
+    val = cookies.get("user_email")
+    st.session_state.user_email = val if val else None
+
+# 2. Container gol pentru a putea ascunde ecranul de login instant
+login_container = st.empty()
 
 if st.session_state.user_id is None:
-    st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
-    
-    tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
-    
-    with tab_login:
-        email_in = st.text_input("Email", key="login_email")
-        pass_in = st.text_input("Parolă", type="password", key="login_pass")
-        if st.button("Loghează-te", use_container_width=True):
-            try:
-                res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
-                st.session_state.user_id = res.user.id
-                st.session_state.user_email = res.user.email
-                st.rerun()
-            except Exception:
-                st.error("❌ Eroare: Email sau parolă incorecte.")
-                
-    with tab_register:
-        email_up = st.text_input("Email", key="reg_email")
-        pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
-        if st.button("Creează Cont", use_container_width=True):
-            try:
-                res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
-                st.session_state.user_id = res.user.id
-                st.session_state.user_email = res.user.email
-                st.success("✅ Cont creat cu succes! Te conectăm imediat...")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Eroare la creare cont: {e}")
-                
-    st.stop() 
+    with login_container.container():
+        st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
+        
+        tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
+        
+        with tab_login:
+            email_in = st.text_input("Email", key="login_email")
+            pass_in = st.text_input("Parolă", type="password", key="login_pass")
+            if st.button("Loghează-te", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
+                    st.session_state.user_id = res.user.id
+                    st.session_state.user_email = res.user.email
+                    
+                    # Salvăm datele în browser pentru viitoarele Refresh-uri!
+                    cookies["user_id"] = res.user.id
+                    cookies["user_email"] = res.user.email
+                    cookies.save()
+                    
+                    st.success("✅ Autentificare reușită!")
+                    login_container.empty() # Facem ecranul de login să dispară
+                except Exception:
+                    st.error("❌ Eroare: Email sau parolă incorecte.")
+                    
+        with tab_register:
+            email_up = st.text_input("Email ", key="reg_email")
+            pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
+            if st.button("Creează Cont", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
+                    st.session_state.user_id = res.user.id
+                    st.session_state.user_email = res.user.email
+                    
+                    # Salvăm datele în browser!
+                    cookies["user_id"] = res.user.id
+                    cookies["user_email"] = res.user.email
+                    cookies.save()
+                    
+                    st.success("✅ Cont creat cu succes!")
+                    login_container.empty() # Facem ecranul de login să dispară
+                except Exception as e:
+                    st.error(f"Eroare la creare cont: {e}")
+                    
+    # Dacă nu s-a logat cu succes, oprim restul aplicației aici
+    if st.session_state.user_id is None:
+        st.stop() 
 
-# --- APLICAȚIA PRINCIPALĂ ---
+# --- APLICAȚIA PRINCIPALĂ (Rulează doar după Logare) ---
 USER_ID = st.session_state.user_id
 
 def obtine_lista_conversatii():
     try:
         response = supabase.table("chats").select("id, title").eq("user_id", USER_ID).order("created_at", desc=True).execute()
         return response.data
-    except Exception: 
-        return []
+    except Exception: return []
 
 def creeaza_conversatie_noua(titlu="Conversație Nouă"):
     try:
         response = supabase.table("chats").insert({"user_id": USER_ID, "title": titlu}).execute()
         return response.data[0]['id']
-    except Exception: 
-        return None
+    except Exception: return None
 
 def salveaza_mesaj_db(chat_id, role, content):
     try:
         supabase.table("chat_history").insert({
              "user_session": USER_ID, "chat_id": chat_id, "role": role, "content": content
         }).execute()
-    except Exception: 
-        pass
+    except Exception: pass
 
 def incarca_istoric_db(chat_id):
     if not chat_id: return []
     try:
         response = supabase.table("chat_history").select("role, content").eq("chat_id", chat_id).order("created_at").execute()
         return response.data
-    except Exception: 
-        return []
+    except Exception: return []
 
 def citeste_fisier(uploaded_file):
     nume = uploaded_file.name.lower()
@@ -117,16 +148,12 @@ def citeste_fisier(uploaded_file):
             return f"[Text extras din imaginea {nume}]:\n{text_extras}"
         else:
             return uploaded_file.getvalue().decode("utf-8")
-    except UnicodeDecodeError: 
-        return f"Eroare: {nume} este un fișier binar."
-    except Exception as e: 
-        return f"Eroare la procesare: {e}"
+    except UnicodeDecodeError: return f"Eroare: {nume} este un fișier binar."
+    except Exception as e: return f"Eroare la procesare: {e}"
 
 def cauta_pe_internet(query):
-    try: 
-        return "\n".join([rez['body'] for rez in DDGS().text(query, max_results=3)])
-    except Exception as e: 
-        return f"Eroare: {str(e)}"
+    try: return "\n".join([rez['body'] for rez in DDGS().text(query, max_results=3)])
+    except Exception as e: return f"Eroare: {str(e)}"
 
 def citeste_cod_github(url):
     try:
@@ -134,34 +161,13 @@ def citeste_cod_github(url):
         r = requests.get(raw_url)
         if r.status_code == 200: return r.text[:5000]
         return f"Eroare HTTP: {r.status_code}"
-    except Exception as e: 
-        return f"Eroare: {str(e)}"
+    except Exception as e: return f"Eroare: {str(e)}"
 
-tools = [
-    {
-        "type": "function", 
-        "function": {
-            "name": "cauta_pe_internet", 
-            "description": "Caută pe net.", 
-            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-        }
-    }, 
-    {
-        "type": "function", 
-        "function": {
-            "name": "citeste_cod_github", 
-            "description": "Citește cod din GitHub.", 
-            "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}
-        }
-    }
-]
+tools = [{"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută pe net.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}]
 
-if "current_chat_id" not in st.session_state: 
-    st.session_state.current_chat_id = None
-if "mesaje" not in st.session_state: 
-    st.session_state.mesaje = []
-if "fisiere_procesate" not in st.session_state: 
-    st.session_state.fisiere_procesate = []
+if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
+if "mesaje" not in st.session_state: st.session_state.mesaje = []
+if "fisiere_procesate" not in st.session_state: st.session_state.fisiere_procesate = []
 
 with st.sidebar:
     st.caption(f"👤 Logat ca: **{st.session_state.user_email}**")
@@ -180,6 +186,11 @@ with st.sidebar:
                 st.warning("Parola trebuie să aibă minim 6 caractere.")
 
     if st.button("🚪 Deconectare", use_container_width=True):
+        # Ștergem datele din browser la deconectare
+        cookies["user_id"] = ""
+        cookies["user_email"] = ""
+        cookies.save()
+        
         st.session_state.user_id = None
         st.session_state.user_email = None
         st.session_state.current_chat_id = None
@@ -247,9 +258,7 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
         needs_rerun = True
 
-    with st.chat_message("user"): 
-        st.markdown(user_input)
-        
+    with st.chat_message("user"): st.markdown(user_input)
     st.session_state.mesaje.append({"role": "user", "content": user_input})
     salveaza_mesaj_db(st.session_state.current_chat_id, "user", user_input) 
     
@@ -260,12 +269,7 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         try:
             bot_reply = ""
             while True:
-                response = client.chat.completions.create(
-                    model="openai/gpt-oss-120b", 
-                    messages=st.session_state.mesaje, 
-                    tools=tools, 
-                    tool_choice="auto"
-                )
+                response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=st.session_state.mesaje, tools=tools, tool_choice="auto")
                 msg_curent = response.choices[0].message
                 
                 if not msg_curent.tool_calls:
@@ -285,14 +289,11 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                         url = argumente.get("url")
                         placeholder.markdown(f"💻 **Citesc codul:** `{url}`...")
                         rez_live = citeste_cod_github(url)
-                    else: 
-                        rez_live = "Eroare: Unealtă inexistentă."
+                    else: rez_live = "Eroare: Unealtă inexistentă."
                         
                     st.session_state.mesaje.append({"role": "tool", "tool_call_id": tool_call.id, "content": rez_live})
                     
-            if not bot_reply: 
-                bot_reply = "Proces încheiat."
-                
+            if not bot_reply: bot_reply = "Proces încheiat."
             placeholder.markdown(bot_reply)
             st.session_state.mesaje.append({"role": "assistant", "content": bot_reply})
             salveaza_mesaj_db(st.session_state.current_chat_id, "assistant", bot_reply)
@@ -300,5 +301,4 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         except Exception as e:
             placeholder.markdown(f"⚠️ Eroare critică: {e}")
             
-if needs_rerun: 
-    st.rerun()
+if needs_rerun: st.rerun()
