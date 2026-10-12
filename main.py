@@ -151,9 +151,9 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul (.txt)", data=content, file_name=f"raspuns_bot_{idx}.txt", key=f"dl_{idx}")
 
-# 2. Afișăm zona de UPLOAD chiar la finalul conversației, deasupra barei de text
-st.markdown("---")
-fisier_incarcat = st.file_uploader("📂 Atașează un fișier (Cod, Printscreen, PDF, Word etc.)", label_visibility="visible")
+# 2. BUTONUL COMPACT DE UPLOAD (Agrafă)
+with st.popover("📎 Atașează un fișier", help="Ce poți uploada: Fisiere PDF, Word, TXT, Scripturi (.py, .js) sau Imagini/Printscreen-uri."):
+    fisier_incarcat = st.file_uploader("Alege sau trage fișierul aici", label_visibility="collapsed")
 
 # --- LOGICA DE PROCESARE A FIȘIERULUI ---
 needs_rerun = False
