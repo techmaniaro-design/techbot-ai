@@ -19,14 +19,14 @@ st.title("🤖 TechBot AI")
 st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
 
 # ====================================================================
-# --- MANAGER DE COOKIES (Varianta curată 2026) ---
+# --- MANAGER DE COOKIES (Fără Cache = Fără avertismente galbene!) ---
 # ====================================================================
-# Inițializăm corect fără parametrii învechiți
-@st.cache_resource
-def get_manager():
-    return stx.CookieManager()
+# Am eliminat @st.cache_resource și i-am dat o cheie unică.
+cookie_manager = stx.CookieManager(key="cookie_manager")
 
-cookie_manager = get_manager()
+# Oprim execuția până când browser-ul trimite cookie-urile!
+if not cookie_manager.ready():
+    st.stop()
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -36,23 +36,21 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE CU PERSISTENȚĂ ---
+# --- SISTEM DE AUTENTIFICARE CU PERSISTENȚĂ REALĂ ---
 # ====================================================================
 if "user_id" not in st.session_state: 
     st.session_state.user_id = None
 if "user_email" not in st.session_state: 
     st.session_state.user_email = None
 
-# Aici aplicația citește browser-ul. (Durează 0.1 secunde pe F5)
 c_id = cookie_manager.get(cookie="techbot_uid")
 c_email = cookie_manager.get(cookie="techbot_email")
 
-# Dacă găsește un cont salvat, intră direct pe el!
 if c_id and st.session_state.user_id is None:
     st.session_state.user_id = c_id
     st.session_state.user_email = c_email
 
-# Containerul gol care ajută la ascunderea interfeței
+# Container gol pentru a face ecranul de login să dispară instant
 login_container = st.empty()
 
 if st.session_state.user_id is None:
@@ -68,9 +66,8 @@ if st.session_state.user_id is None:
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
                     
-                    # Salvăm datele în browser (expiră în 30 de zile)
-                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60, key="set_uid")
-                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60, key="set_email")
+                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60)
+                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60)
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
@@ -87,8 +84,8 @@ if st.session_state.user_id is None:
                 try:
                     res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
                     
-                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60, key="reg_uid")
-                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60, key="reg_email")
+                    cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60)
+                    cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60)
                     
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
@@ -98,7 +95,6 @@ if st.session_state.user_id is None:
                 except Exception as e:
                     st.error(f"Eroare la creare cont: {e}")
                     
-    # Dacă nu are cookie-uri, se oprește aici și așteaptă logarea.
     st.stop() 
 
 # ====================================================================
@@ -188,9 +184,8 @@ with st.sidebar:
                 st.warning("Parola trebuie să aibă minim 6 caractere.")
 
     if st.button("🚪 Deconectare", use_container_width=True):
-        # Ștergem cookie-urile definitiv la deconectare!
-        cookie_manager.delete("techbot_uid", key="del_uid")
-        cookie_manager.delete("techbot_email", key="del_email")
+        cookie_manager.delete("techbot_uid")
+        cookie_manager.delete("techbot_email")
         
         st.session_state.user_id = None
         st.session_state.user_email = None
