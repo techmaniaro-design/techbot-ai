@@ -27,7 +27,7 @@ client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
 
 # ====================================================================
-# --- SISTEM DE AUTENTIFICARE DIRECTĂ (FĂRĂ CONFIRMARE EMAIL) ---
+# --- SISTEM DE AUTENTIFICARE ---
 # ====================================================================
 if "user_id" not in st.session_state: st.session_state.user_id = None
 if "user_email" not in st.session_state: st.session_state.user_email = None
@@ -35,7 +35,8 @@ if "user_email" not in st.session_state: st.session_state.user_email = None
 if st.session_state.user_id is None:
     st.info("🔒 Trebuie să te autentifici pentru a accesa asistentul.")
     
-    tab_login, tab_register = st.tabs(["Intră în cont", "Creează cont nou"])
+    # Am adăugat al 3-lea tab pentru resetare parolă
+    tab_login, tab_register, tab_reset = st.tabs(["Intră în cont", "Creează cont nou", "Recuperare parolă"])
     
     with tab_login:
         email_in = st.text_input("Email", key="login_email")
@@ -54,15 +55,24 @@ if st.session_state.user_id is None:
         pass_up = st.text_input("Parolă (minim 6 caractere)", type="password", key="reg_pass")
         if st.button("Creează Cont", use_container_width=True):
             try:
-                # Creăm contul
                 res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
-                # Fiindcă am dezactivat confirmarea, îl logăm direct pe utilizator!
                 st.session_state.user_id = res.user.id
                 st.session_state.user_email = res.user.email
                 st.success("✅ Cont creat cu succes! Intrăm în aplicație...")
                 st.rerun()
             except Exception as e:
                 st.error(f"Eroare la creare cont: {e}")
+                
+    with tab_reset:
+        st.write("Dacă ai uitat parola, introdu adresa de email mai jos pentru a primi un link de resetare.")
+        email_reset = st.text_input("Email pentru resetare", key="reset_email")
+        if st.button("Trimite link de resetare", use_container_width=True):
+            try:
+                # Comanda Supabase pentru resetare
+                supabase.auth.reset_password_email(email_reset)
+                st.success("✅ Dacă adresa există în sistem, vei primi un email cu instrucțiuni.")
+            except Exception as e:
+                st.error(f"Eroare: {e}")
                 
     st.stop() 
 
@@ -95,7 +105,6 @@ def incarca_istoric_db(chat_id):
         return response.data
     except Exception: return []
 
-# --- FUNCȚIE UNIVERSALĂ DE CITIRE FIȘIERE ---
 def citeste_fisier(uploaded_file):
     nume = uploaded_file.name.lower()
     try:
@@ -114,12 +123,9 @@ def citeste_fisier(uploaded_file):
             return f"[Text extras din imaginea {nume}]:\n{text_extras}"
         else:
             return uploaded_file.getvalue().decode("utf-8")
-    except UnicodeDecodeError:
-        return f"Eroare: {nume} este un fișier binar."
-    except Exception as e:
-        return f"Eroare la procesarea fișierului {nume}: {e}"
+    except UnicodeDecodeError: return f"Eroare: {nume} este un fișier binar."
+    except Exception as e: return f"Eroare la procesare: {e}"
 
-# --- TOOLS ---
 def cauta_pe_internet(query):
     try: return "\n".join([rez['body'] for rez in DDGS().text(query, max_results=3)])
     except Exception as e: return f"Eroare: {str(e)}"
@@ -134,7 +140,6 @@ def citeste_cod_github(url):
 
 tools = [{"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută pe net.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}]
 
-# --- MANAGEMENTUL STĂRII ---
 if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
 if "mesaje" not in st.session_state: st.session_state.mesaje = []
 if "fisiere_procesate" not in st.session_state: st.session_state.fisiere_procesate = []
@@ -142,6 +147,23 @@ if "fisiere_procesate" not in st.session_state: st.session_state.fisiere_procesa
 # --- SIDEBAR (MENIU LATERAL) ---
 with st.sidebar:
     st.caption(f"👤 Logat ca: **{st.session_state.user_email}**")
+    
+    # 1. MENIUL NOU DE SETĂRI CONT
+    with st.expander("⚙️ Setări Cont"):
+        st.write("Schimbă parola contului tău:")
+        new_password = st.text_input("Parolă nouă", type="password", key="new_pass")
+        if st.button("Actualizează Parola", use_container_width=True):
+            if len(new_password) >= 6:
+                try:
+                    # Funcția Supabase pentru a schimba datele userului curent logat
+                    supabase.auth.update_user({"password": new_password})
+                    st.success("✅ Parola a fost schimbată!")
+                except Exception as e:
+                    st.error(f"Eroare: {e}")
+            else:
+                st.warning("Parola trebuie să aibă minim 6 caractere.")
+
+    # 2. BUTON DECONECTARE
     if st.button("🚪 Deconectare", use_container_width=True):
         st.session_state.user_id = None
         st.session_state.user_email = None
