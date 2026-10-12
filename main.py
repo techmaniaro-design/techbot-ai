@@ -1,7 +1,12 @@
 import os
+import io
 import json
 import uuid
 import requests
+import PyPDF2
+import docx2txt
+import pytesseract
+from PIL import Image
 import streamlit as st
 from openai import OpenAI
 from duckduckgo_search import DDGS
@@ -10,192 +15,174 @@ from supabase import create_client, Client
 # --- CONFIGURARE INIȚIALĂ ---
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
 st.title("🤖 TechBot AI")
-st.caption("Asistent tehnic cu memorie permanentă, căutare Web și analiză cod GitHub.")
+st.caption("Asistent cu memorie, căutare Web, analiză GitHub și procesare avansată de Documente, Cod și Printscreen-uri.")
 
 # ====================================================================
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
-# Preia cheile din seiful Streamlit Cloud
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
 cheie_groq = st.secrets["GROQ_API_KEY"]
 # ====================================================================
 
 client = OpenAI(api_key=cheie_groq, base_url="https://api.groq.com/openai/v1")
 supabase: Client = create_client(url_baza_date, cheie_baza_date)
-
-# ID-ul utilizatorului (hardcodat pentru test, până facem sistem de login real)
 USER_ID = "utilizator_test_1"
 
-# --- FUNCȚII PENTRU GESTIONAREA CONVERSAȚIILOR (CHATS) ---
+# --- FUNCȚII BAZĂ DE DATE ---
 def obtine_lista_conversatii():
-    """Aduce din DB toate conversațiile acestui utilizator"""
     try:
         response = supabase.table("chats").select("id, title").eq("user_id", USER_ID).order("created_at", desc=True).execute()
         return response.data
-    except Exception as e:
-        print(f"Eroare la citire lista chat-uri: {e}")
-        return []
+    except Exception: return []
 
 def creeaza_conversatie_noua(titlu="Conversație Nouă"):
-    """Creează un 'dosar' nou de conversație în DB și returnează ID-ul lui"""
     try:
-        response = supabase.table("chats").insert({
-            "user_id": USER_ID,
-            "title": titlu
-        }).execute()
+        response = supabase.table("chats").insert({"user_id": USER_ID, "title": titlu}).execute()
         return response.data[0]['id']
-    except Exception as e:
-        print(f"Eroare la creare chat: {e}")
-        return None
+    except Exception: return None
 
-def actualizeaza_titlu_conversatie(chat_id, titlu_nou):
-    """Schimbă titlul conversației după primul mesaj"""
-    try:
-         supabase.table("chats").update({"title": titlu_nou}).eq("id", chat_id).execute()
-    except Exception as e:
-        print(f"Eroare la update titlu: {e}")
-
-# --- FUNCȚII PENTRU GESTIONAREA MESAJELOR ---
 def salveaza_mesaj_db(chat_id, role, content):
-    """Salvează un mesaj legat de un anumit chat_id"""
     try:
         supabase.table("chat_history").insert({
-             "user_session": USER_ID, # Încă păstrăm asta pentru siguranță/compatibilitate
-             "chat_id": chat_id,
-             "role": role,
-             "content": content
+             "user_session": USER_ID, "chat_id": chat_id, "role": role, "content": content
         }).execute()
-    except Exception as e:
-        print(f"Eroare DB la salvare mesaj: {e}")
+    except Exception: pass
 
 def incarca_istoric_db(chat_id):
-    """Încarcă mesajele DOAR pentru conversația selectată"""
     if not chat_id: return []
     try:
         response = supabase.table("chat_history").select("role, content").eq("chat_id", chat_id).order("created_at").execute()
         return response.data
+    except Exception: return []
+
+# --- FUNCȚIE UNIVERSALĂ DE CITIRE FIȘIERE ---
+def citeste_fisier(uploaded_file):
+    """Extrage textul din ABSOLUT ORICE fișier (Cod, PDF, Word, Poze)"""
+    nume = uploaded_file.name.lower()
+    try:
+        if nume.endswith('.pdf'):
+            text = ""
+            reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.getvalue()))
+            for page in reader.pages:
+                extras = page.extract_text()
+                if extras: text += extras + "\n"
+            return text
+            
+        elif nume.endswith('.docx'):
+            return docx2txt.process(io.BytesIO(uploaded_file.getvalue()))
+            
+        elif nume.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            # Extragem textul din printscreen-uri cu OCR
+            imagine = Image.open(io.BytesIO(uploaded_file.getvalue()))
+            text_extras = pytesseract.image_to_string(imagine)
+            return f"[Text extras cu succes din printscreen-ul {nume}]:\n{text_extras}"
+            
+        else:
+            # Fallback Universal: Orice altceva (.py, fișiere dialog, scripturi, csv)
+            # Îl forțăm să îl citească ca text/cod.
+            return uploaded_file.getvalue().decode("utf-8")
+            
+    except UnicodeDecodeError:
+        return f"Eroare: {nume} este un fișier binar (cum ar fi un clip video sau un executabil) pe care botul nu îl poate citi direct."
     except Exception as e:
-        return []
+        return f"Eroare la procesarea fișierului {nume}: {e}"
 
 # --- TOOLS ---
 def cauta_pe_internet(query):
     try:
         return "\n".join([rez['body'] for rez in DDGS().text(query, max_results=3)])
-    except Exception as e:
-        return f"Eroare: {str(e)}"
+    except Exception as e: return f"Eroare: {str(e)}"
 
 def citeste_cod_github(url):
     try:
         raw_url = url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
         r = requests.get(raw_url)
-        if r.status_code == 200:
-            return r.text[:5000]
-        return f"Eroare: Nu am putut citi. Cod HTTP: {r.status_code}"
-    except Exception as e:
-        return f"Eroare: {str(e)}"
+        if r.status_code == 200: return r.text[:5000]
+        return f"Eroare HTTP: {r.status_code}"
+    except Exception as e: return f"Eroare: {str(e)}"
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "cauta_pe_internet",
-            "description": "Caută pe net informații recente IT/hardware.",
-            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "citeste_cod_github",
-            "description": "Citește codul sursă direct dintr-un link public de GitHub.",
-            "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "Link-ul complet GitHub"}}, "required": ["url"]}
-        }
-    }
-]
+tools = [{"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută informații pe internet.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod sursă din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}]
 
-# --- MANAGEMENTUL STĂRII (SESSION STATE) ---
-# Ce chat este activ acum?
-if "current_chat_id" not in st.session_state:
-    st.session_state.current_chat_id = None
+# --- MANAGEMENTUL STĂRII ---
+if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
+if "mesaje" not in st.session_state: st.session_state.mesaje = []
+if "fisiere_procesate" not in st.session_state: st.session_state.fisiere_procesate = []
 
-# Lista de mesaje din interfață pentru chat-ul curent
-if "mesaje" not in st.session_state:
-    st.session_state.mesaje = []
-
-
-# ====================================================================
-# --- INTERFAȚA LATERALĂ (SIDEBAR) ---
-# ====================================================================
+# --- SIDEBAR (MENIU LATERAL) ---
 with st.sidebar:
     st.header("Conversațiile tale")
-    
-    # Buton pentru o conversație nouă
     if st.button("➕ Conversație Nouă", use_container_width=True):
-        st.session_state.current_chat_id = None # Resetăm selecția
-        st.session_state.mesaje = [] # Golem ecranul
-        st.rerun() # Reîncărcăm pagina ca să aplicăm
+        st.session_state.current_chat_id = None
+        st.session_state.mesaje = []
+        st.session_state.fisiere_procesate = []
+        st.rerun()
         
     st.divider()
     
-    # Afișăm lista cu discuțiile vechi
     lista_conversatii = obtine_lista_conversatii()
-    
     for conv in lista_conversatii:
-        # Dacă apeși pe un buton din listă...
         if st.button(conv["title"], key=conv["id"], use_container_width=True):
             st.session_state.current_chat_id = conv["id"]
-            # Când schimbăm chat-ul, încărcăm mesajele din DB
+            st.session_state.fisiere_procesate = []
             st.session_state.mesaje = incarca_istoric_db(conv["id"])
-            # Dacă nu are mesaje salvate în DB, punem doar system prompt
             if not st.session_state.mesaje:
-                system_prompt = "Ești un asistent tehnic expert."
-                st.session_state.mesaje = [{"role": "system", "content": system_prompt}]
-                salveaza_mesaj_db(conv["id"], "system", system_prompt)
+                prompt = "Ești un asistent tehnic expert."
+                st.session_state.mesaje = [{"role": "system", "content": prompt}]
+                salveaza_mesaj_db(conv["id"], "system", prompt)
             st.rerun()
 
-# ====================================================================
+    st.divider()
+    st.header("📂 Urcă ORICE document")
+    st.caption("Suportă: Cod (.py, .js), Printscreen-uri, PDF, Word, TXT, CSV etc.")
+    
+    # Am scos `type=` complet! Acum poți urca ABSOLUT ORICE tip de fișier!
+    fisier_incarcat = st.file_uploader("Atașează fișier pentru analiză", label_visibility="collapsed")
+
 # --- ZONA PRINCIPALĂ DE CHAT ---
-# ====================================================================
-
-# Dacă suntem într-un chat nou (sau nu am selectat nimic) și ecranul e gol
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
-     system_prompt = "Ești un asistent tehnic expert. Răspunde concis."
-     st.session_state.mesaje = [{"role": "system", "content": system_prompt}]
+     st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent tehnic expert. Când utilizatorul îți dă un fișier, cod sau printscreen, citește-l cu atenție și folosește-l ca bază pentru răspuns. Oferă formatare perfectă dacă se cere completarea lui."}]
 
-# Afișăm istoricul vizual
-for msg in st.session_state.mesaje:
+for idx, msg in enumerate(st.session_state.mesaje):
     role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")
     content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
     
     if role in ["user", "assistant"] and content:
         with st.chat_message(role):
             st.markdown(content)
+            if role == "assistant":
+                st.download_button("💾 Salvează Răspunsul (.txt)", data=content, file_name=f"raspuns_bot_{idx}.txt", key=f"dl_{idx}")
 
-# LOGICA PRINCIPALĂ CÂND UTILIZATORUL SCRIE CEVA
-if user_input := st.chat_input("Scrie mesajul tău aici..."):
+# --- LOGICA DE PROCESARE A FIȘIERULUI ---
+needs_rerun = False
+if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
+    text_extras = citeste_fisier(fisier_incarcat)
     
-    # 1. Dacă nu avem un Chat ID (e prima oară când scriem în acest ecran gol)
     if st.session_state.current_chat_id is None:
-        # Creăm "dosarul" în baza de date cu primele 20 de litere din mesaj ca titlu
-        titlu_scurt = user_input[:20] + "..." if len(user_input) > 20 else user_input
-        noul_id = creeaza_conversatie_noua(titlu=titlu_scurt)
-        st.session_state.current_chat_id = noul_id
-        
-        # Salvăm promptul de sistem care stătea în așteptare în noul chat
+        st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=f"Analiză {fisier_incarcat.name}")
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
-        
-        # Forțăm refresh la meniul lateral (ca să apară noul titlu)
-        # folosim un truc cu rerun la final
-        needs_rerun = True
-    else:
-        needs_rerun = False
+    
+    # Trimitem ce s-a extras (cod pur, sau text din imagine, sau PDF) către bot
+    mesaj_fisier = f"📄 **Am încărcat fișierul:** `{fisier_incarcat.name}`\n\n**Conținut extras:**\n```\n{text_extras[:15000]}\n```\n\nFolosește aceste date pentru următoarele mele instrucțiuni."
+    
+    st.session_state.mesaje.append({"role": "user", "content": mesaj_fisier})
+    salveaza_mesaj_db(st.session_state.current_chat_id, "user", mesaj_fisier)
+    
+    st.session_state.fisiere_procesate.append(fisier_incarcat.name)
+    needs_rerun = True
 
-    # 2. Afișăm pe ecran și salvăm mesajul utilizatorului
+# --- LOGICA DE CHAT ---
+if user_input := st.chat_input("Scrie mesajul tău, dă-mi instrucțiuni pentru fișier..."):
+    
+    if st.session_state.current_chat_id is None:
+        titlu_scurt = user_input[:20] + "..." if len(user_input) > 20 else user_input
+        st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=titlu_scurt)
+        salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
+        needs_rerun = True
+
     with st.chat_message("user"):
         st.markdown(user_input)
     st.session_state.mesaje.append({"role": "user", "content": user_input})
     salveaza_mesaj_db(st.session_state.current_chat_id, "user", user_input) 
     
-    # 3. Răspunsul Asistentului
     with st.chat_message("assistant"):
         placeholder = st.empty()
         placeholder.markdown("Gândesc...")
@@ -225,31 +212,25 @@ if user_input := st.chat_input("Scrie mesajul tău aici..."):
                         query = argumente.get("query")
                         placeholder.markdown(f"🔄 **Caut pe net:** `{query}`...")
                         rez_live = cauta_pe_internet(query)
-                        
                     elif tool_call.function.name == "citeste_cod_github":
                         url = argumente.get("url")
                         placeholder.markdown(f"💻 **Citesc codul:** `{url}`...")
                         rez_live = citeste_cod_github(url)
                     else:
-                        rez_live = "Eroare: Această unealtă nu există."
+                        rez_live = "Eroare: Unealtă inexistentă."
                         
-                    st.session_state.mesaje.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": rez_live
-                    })
+                    st.session_state.mesaje.append({"role": "tool", "tool_call_id": tool_call.id, "content": rez_live})
                     
-            if not bot_reply:
-                bot_reply = "Fișierul a fost citit, dar asistentul nu a formulat o explicație."
+            if not bot_reply: bot_reply = "Procesul s-a încheiat fără text generat."
                 
             placeholder.markdown(bot_reply)
             st.session_state.mesaje.append({"role": "assistant", "content": bot_reply})
             salveaza_mesaj_db(st.session_state.current_chat_id, "assistant", bot_reply)
             
-        except Exception as e:
-            placeholder.markdown(f"⚠️ Eroare critică la generare: {e}")
+            st.download_button("💾 Salvează Răspunsul (.txt)", data=bot_reply, file_name="raspuns_formatat.txt", key=f"dl_nou_{uuid.uuid4().hex[:6]}")
             
-    # Dacă tocmai am creat un chat nou, facem un scurt refresh 
-    # ca să actualizăm lista din stânga cu noul titlu.
-    if needs_rerun:
-        st.rerun()
+        except Exception as e:
+            placeholder.markdown(f"⚠️ Eroare critică: {e}")
+            
+if needs_rerun:
+    st.rerun()
