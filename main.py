@@ -19,7 +19,7 @@ import extra_streamlit_components as stx
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
 
 # ====================================================================
-# --- MANAGER DE COOKIES ---
+# --- HACK PENTRU REFRESH ȘI COOKIES ---
 # ====================================================================
 with st.sidebar:
     cookie_manager = stx.CookieManager(key="cookie_manager")
@@ -229,6 +229,7 @@ with st.sidebar:
                 salveaza_mesaj_db(conv["id"], "system", prompt)
             st.rerun()
 
+# Desenează mesajele existente
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
 
@@ -242,6 +243,7 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
+# Încărcare fișiere
 with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
     fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
 
@@ -259,12 +261,15 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
     st.session_state.fisiere_procesate.append(fisier_incarcat.name)
     needs_rerun = True
 
+# Zona de chat principală
 if user_input := st.chat_input("Scrie mesajul tău..."):
+    # Dacă este o conversație nouă, doar îi generăm un ID în baza de date. 
+    # NU îi mai dăm needs_rerun = True aici ca să nu taie mesajul!
     if st.session_state.current_chat_id is None:
         titlu_scurt = user_input[:20] + "..." if len(user_input) > 20 else user_input
         st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=titlu_scurt)
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
-        
+
     with st.chat_message("user"): st.markdown(user_input)
     st.session_state.mesaje.append({"role": "user", "content": user_input})
     salveaza_mesaj_db(st.session_state.current_chat_id, "user", user_input) 
@@ -283,7 +288,6 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                     bot_reply = msg_curent.content
                     break
                 
-                # REZOLVARE BUG 1: Forțăm conversia memoriei în dicționar simplu ca să nu se blocheze modelul!
                 dict_curent = {"role": msg_curent.role, "content": msg_curent.content}
                 if msg_curent.tool_calls:
                     dict_curent["tool_calls"] = [{"id": t.id, "type": t.type, "function": {"name": t.function.name, "arguments": t.function.arguments}} for t in msg_curent.tool_calls]
@@ -304,9 +308,8 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                         
                     st.session_state.mesaje.append({"role": "tool", "tool_call_id": tool_call.id, "content": rez_live})
                     
-            # REZOLVARE BUG 2: Protecție împotriva textului invizibil 
             if not bot_reply or not bot_reply.strip():
-                bot_reply = "⚠️ Eroare internă AI: Modelul a returnat un text gol. Am curățat eroarea, te rog trimite mesajul din nou."
+                bot_reply = "⚠️ Eroare internă AI: Modelul a returnat un text gol. Te rog trimite mesajul din nou."
                 
             placeholder.markdown(bot_reply)
             st.session_state.mesaje.append({"role": "assistant", "content": bot_reply})
@@ -315,7 +318,5 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         except Exception as e:
             placeholder.markdown(f"⚠️ Eroare critică: {e}")
             
-    # REZOLVARE BUG 3: Forțăm redesenarea instantă a întregului ecran ca să nu rătăcim bulele de chat
-    st.rerun()
-    
+# Dacă am încărcat un fișier, doar atunci facem refresh ca să procesăm bine
 if needs_rerun: st.rerun()
