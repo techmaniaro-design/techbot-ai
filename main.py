@@ -118,6 +118,13 @@ def creeaza_conversatie_noua(titlu="Conversație Nouă"):
         return response.data[0]['id']
     except Exception: return None
 
+# 🌟 Funcție nouă: Actualizarea titlului în baza de date
+def actualizeaza_titlu_conversatie(chat_id, noul_titlu):
+    try:
+        supabase.table("chats").update({"title": noul_titlu}).eq("id", chat_id).execute()
+    except Exception as e:
+        print(f"Eroare la actualizare titlu: {e}")
+
 def salveaza_mesaj_db(chat_id, role, content):
     try:
         supabase.table("chat_history").insert({
@@ -241,7 +248,6 @@ with st.sidebar:
                     st.session_state.fisiere_procesate = []
                 st.rerun()
 
-# Desenează mesajele din istoric
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
 
@@ -255,7 +261,6 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
-# Popover pentru fișiere
 with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
     fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
 
@@ -263,8 +268,11 @@ needs_rerun = False
 if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
     text_extras = citeste_fisier(fisier_incarcat)
     
+    # 🌟 Găsim un titlu relevant din numele fișierului
+    titlu_generat = f"Analiză: {fisier_incarcat.name[:15]}..."
+    
     if st.session_state.current_chat_id is None:
-        st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=f"Analiză {fisier_incarcat.name}")
+        st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=titlu_generat)
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
     
     mesaj_fisier = f"📄 **Am încărcat fișierul:** `{fisier_incarcat.name}`\n\n**Conținut:**\n```\n{text_extras[:10000]}\n```\n\nFolosește aceste date."
@@ -273,12 +281,29 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
     st.session_state.fisiere_procesate.append(fisier_incarcat.name)
     needs_rerun = True
 
-# CHAT INPUT-ul
 if user_input := st.chat_input("Scrie mesajul tău..."):
+    # 🌟 Aici este logica nouă: generăm un titlu la prima interacțiune 
+    este_conversatie_noua = False
     if st.session_state.current_chat_id is None:
-        titlu_scurt = user_input[:20] + "..." if len(user_input) > 20 else user_input
-        st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=titlu_scurt)
+        este_conversatie_noua = True
+        st.session_state.current_chat_id = creeaza_conversatie_noua(titlu="Se generează titlul...")
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
+        
+        # Generăm titlul în fundal cerând AI-ului un rezumat ultra-scurt
+        try:
+            prompt_titlu = f"Generează un titlu de maxim 4 cuvinte, descriptiv și în română, pentru această întrebare: '{user_input}'. Oferă DOAR titlul, fără ghilimele sau explicații."
+            raspuns_titlu = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": prompt_titlu}],
+                max_tokens=10
+            )
+            titlu_final = raspuns_titlu.choices[0].message.content.strip().replace('"', '')
+            if not titlu_final:
+                titlu_final = user_input[:20] + "..."
+                
+            actualizeaza_titlu_conversatie(st.session_state.current_chat_id, titlu_final)
+        except Exception:
+            actualizeaza_titlu_conversatie(st.session_state.current_chat_id, user_input[:20] + "...")
 
     with st.chat_message("user"): st.markdown(user_input)
     st.session_state.mesaje.append({"role": "user", "content": user_input})
@@ -366,12 +391,13 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             st.session_state.mesaje.append({"role": "assistant", "content": bot_reply})
             salveaza_mesaj_db(st.session_state.current_chat_id, "assistant", bot_reply)
             
-            # ADĂUGAT: Afișăm butonul de salvare IMEDIAT, fără să mai oprim/resetam ecranul!
             st.download_button("💾 Salvează Răspunsul", data=bot_reply, file_name=f"raspuns_{len(st.session_state.mesaje)}.txt", key=f"dl_live_{uuid.uuid4().hex[:6]}")
             
+            # 🌟 Dacă a fost un chat nou, forțăm o reîncărcare la final pentru a afișa titlul frumos în meniul din stânga!
+            if este_conversatie_noua:
+                st.rerun()
+                
         except Exception as e:
             placeholder.markdown(f"⚠️ Eroare critică la generare: S-a atins limita serverului sau ai picat netul.")
             
-    # AM ȘTERS st.rerun() CARE BLOCA TASTA ENTER. Acum funcționează perfect!
-    
 if needs_rerun: st.rerun()
