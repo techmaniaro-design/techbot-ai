@@ -4,7 +4,6 @@ import json
 import uuid
 import time
 import requests
-import urllib.parse
 import PyPDF2
 import docx2txt
 import pytesseract
@@ -31,7 +30,7 @@ if "prima_incarcare" not in st.session_state:
     st.rerun()
 
 st.title("🤖 TechBot AI")
-st.caption("Asistent cu memorie privată, căutare Web, analiză Documente, comenzi Vocale și Generare Imagini HQ.")
+st.caption("Asistent cu memorie privată, căutare Web, analiză de Documente și comenzi Vocale.")
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -179,36 +178,9 @@ def citeste_cod_github(url):
         return f"Eroare HTTP: {r.status_code}"
     except Exception as e: return f"Eroare: {str(e)}"
 
-# 🌟 Funcția modificată pentru Format Dinamic (HQ)
-def genereaza_imagine(prompt, width, height):
-    try:
-        prompt_codificat = urllib.parse.quote(prompt)
-        seed_random = str(uuid.uuid4().int)[:6] 
-        url_imagine = f"https://image.pollinations.ai/prompt/{prompt_codificat}?width={width}&height={height}&nologo=true&model=flux&seed={seed_random}"
-        
-        return f"*(Notă: AI-ul a fost optimizat pentru format HQ {width}x{height}. Unele litere complexe ar putea necesita retuș manual.)*\n\nIată imaginea:\n\n![Imagine generată]({url_imagine})"
-    except Exception as e:
-        return f"Eroare la generare imagine: {str(e)}"
-
 tools = [
     {"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută pe net.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, 
-    {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
-    {
-        "type": "function", 
-        "function": {
-            "name": "genereaza_imagine", 
-            "description": "Generează o imagine HQ gratuit. Trebuie să traduci promptul în engleză la nivel expert. Pentru LOGO adaugă: 'vector graphic, clean background, sharp typography, minimalist'. Pentru BANNER adaugă: 'high quality, widescreen layout'. Dacă cere text pe imagine, pune cuvântul în ghilimele și adaugă 'text reading \"Cuvant\"'. Alege width și height potrivite: 1024x1024 pentru logo/pătrat, 1920x1080 pentru banner/peisaj, 1080x1920 pentru portret/telefon.", 
-            "parameters": {
-                "type": "object", 
-                "properties": {
-                    "prompt": {"type": "string", "description": "Prompt-ul în engleză, ultra-detaliat și formatat specific nevoii."},
-                    "width": {"type": "integer", "description": "Lățimea în pixeli (ex: 1920, 1024, 1080)."},
-                    "height": {"type": "integer", "description": "Înălțimea în pixeli (ex: 1080, 1024, 1920)."}
-                }, 
-                "required": ["prompt", "width", "height"]
-            }
-        }
-    }
+    {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}
 ]
 
 if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
@@ -493,15 +465,6 @@ if final_input:
                         url = argumente.get("url", "")
                         placeholder.markdown(f"💻 **Citesc codul:** `{url}`...")
                         rez_live = citeste_cod_github(url)
-                    elif func_name == "genereaza_imagine":
-                        prompt_img = argumente.get("prompt", "")
-                        
-                        # Setăm width și height din instrucțiunile primite de la AI
-                        width_img = argumente.get("width", 1024)
-                        height_img = argumente.get("height", 1024)
-                        
-                        placeholder.markdown(f"🎨 **Desenez ({width_img}x{height_img})...**")
-                        rez_live = genereaza_imagine(prompt_img, width=width_img, height=height_img)
                     else: 
                         rez_live = "Eroare: Unealtă inexistentă."
                         
