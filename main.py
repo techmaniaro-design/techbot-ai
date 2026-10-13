@@ -4,6 +4,7 @@ import json
 import uuid
 import time
 import requests
+import urllib.parse
 import PyPDF2
 import docx2txt
 import pytesseract
@@ -30,7 +31,7 @@ if "prima_incarcare" not in st.session_state:
     st.rerun()
 
 st.title("🤖 TechBot AI")
-st.caption("Asistent cu memorie privată, căutare Web, analiză Documente și comenzi Vocale.")
+st.caption("Asistent cu memorie privată, căutare Web, analiză Documente, comenzi Vocale și Generare Imagini 100% Gratuită.")
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -178,7 +179,25 @@ def citeste_cod_github(url):
         return f"Eroare HTTP: {r.status_code}"
     except Exception as e: return f"Eroare: {str(e)}"
 
-tools = [{"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută pe net.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}}]
+# 🌟 Funcția nouă: Generare Imagine Gratuită
+def genereaza_imagine(prompt):
+    try:
+        # Transformăm textul din engleză într-un format valabil pentru un link web (fără spații goale etc.)
+        prompt_codificat = urllib.parse.quote(prompt)
+        
+        # Link-ul către AI-ul public Pollinations, setat pe 1024x1024 și cu logo-ul ascuns
+        url_imagine = f"https://image.pollinations.ai/prompt/{prompt_codificat}?width=1024&height=1024&nologo=true"
+        
+        # Trimitem link-ul bot-ului ca să ți-l afișeze ca o fotografie
+        return f"Imaginea a fost generată! Afișează exact acest text în markdown pentru ca utilizatorul să vadă poza: ![Imagine generată]({url_imagine})"
+    except Exception as e:
+        return f"Eroare la generare imagine: {str(e)}"
+
+tools = [
+    {"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută pe net.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, 
+    {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
+    {"type": "function", "function": {"name": "genereaza_imagine", "description": "Desenează sau generează o imagine gratuit. Tu trebuie să traduci detaliat prompt-ul utilizatorului în engleză și să folosești această funcție.", "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "Descrierea super detaliată a imaginii în limba engleză."}}, "required": ["prompt"]}}}
+]
 
 if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
 if "mesaje" not in st.session_state: st.session_state.mesaje = []
@@ -247,9 +266,6 @@ with st.sidebar:
                     st.session_state.fisiere_procesate = []
                 st.rerun()
 
-    # ====================================================================
-    # 🌟 NOUL SISTEM DE EXPORT 
-    # ====================================================================
     st.divider()
     st.header("📥 Export Date")
     
@@ -273,7 +289,6 @@ with st.sidebar:
     else:
         st.caption("Discută cu bot-ul pentru a putea exporta conversația.")
 
-# Desenează mesajele din istoric
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
 
@@ -287,9 +302,6 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
-# ====================================================================
-# --- ZONA DE INSTRUMENTE (La baza ecranului) ---
-# ====================================================================
 st.write("") 
 col_file, col_voice, col_empty = st.columns([2, 2, 6])
 
@@ -317,9 +329,6 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
     st.session_state.fisiere_procesate.append(fisier_incarcat.name)
     needs_rerun = True
 
-# ====================================================================
-# --- PROCESARE INPUT (Text sau Voce) ---
-# ====================================================================
 final_input = None
 user_text = st.chat_input("Scrie mesajul tău...")
 
@@ -472,6 +481,10 @@ if final_input:
                         url = argumente.get("url", "")
                         placeholder.markdown(f"💻 **Citesc codul:** `{url}`...")
                         rez_live = citeste_cod_github(url)
+                    elif func_name == "genereaza_imagine":
+                        prompt_img = argumente.get("prompt", "")
+                        placeholder.markdown(f"🎨 **Desenez imaginea cerută...**")
+                        rez_live = genereaza_imagine(prompt_img)
                     else: 
                         rez_live = "Eroare: Unealtă inexistentă."
                         
