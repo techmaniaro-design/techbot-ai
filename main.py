@@ -31,7 +31,7 @@ if "prima_incarcare" not in st.session_state:
     st.rerun()
 
 st.title("🤖 TechBot AI")
-st.caption("Asistent cu memorie privată, căutare Web, analiză Documente, comenzi Vocale și Generare Imagini 100% Gratuită.")
+st.caption("Asistent cu memorie privată, căutare Web, analiză Documente, comenzi Vocale și Generare Imagini HQ.")
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -179,27 +179,36 @@ def citeste_cod_github(url):
         return f"Eroare HTTP: {r.status_code}"
     except Exception as e: return f"Eroare: {str(e)}"
 
-# 🌟 Funcția nouă îmbunătățită: Generare Imagine Gratuită
-def genereaza_imagine(prompt):
+# 🌟 Funcția modificată pentru Format Dinamic (HQ)
+def genereaza_imagine(prompt, width, height):
     try:
-        # Codificăm prompt-ul
         prompt_codificat = urllib.parse.quote(prompt)
+        seed_random = str(uuid.uuid4().int)[:6] 
+        url_imagine = f"https://image.pollinations.ai/prompt/{prompt_codificat}?width={width}&height={height}&nologo=true&model=flux&seed={seed_random}"
         
-        # Folosim modelul "flux" de la Pollinations, care e mai bun la detalii
-        # Am schimbat și seed-ul random ca să nu primim aceeași imagine
-        seed_random = str(uuid.uuid4().int)[:5] 
-        url_imagine = f"https://image.pollinations.ai/prompt/{prompt_codificat}?width=1024&height=1024&nologo=true&model=flux&seed={seed_random}"
-        
-        # Am adăugat un mic text explicativ pentru utilizator.
-        return f"*(Notă: AI-ul gratuit are limitări în scrierea textului exact pe imagini.)*\n\nImaginea a fost generată! \n\n![Imagine generată]({url_imagine})"
+        return f"*(Notă: AI-ul a fost optimizat pentru format HQ {width}x{height}. Unele litere complexe ar putea necesita retuș manual.)*\n\nIată imaginea:\n\n![Imagine generată]({url_imagine})"
     except Exception as e:
         return f"Eroare la generare imagine: {str(e)}"
 
 tools = [
     {"type": "function", "function": {"name": "cauta_pe_internet", "description": "Caută pe net.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}, 
     {"type": "function", "function": {"name": "citeste_cod_github", "description": "Citește cod din GitHub.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
-    # 🌟 Modificare aici: Instrucțiuni mai stricte pentru prompt-ul imaginii
-    {"type": "function", "function": {"name": "genereaza_imagine", "description": "Desenează sau generează o imagine gratuit. Tu trebuie să traduci detaliat prompt-ul utilizatorului în engleză. Dacă utilizatorul cere TEXT sau un LOGO pe imagine, pune cuvântul cerut între ghilimele duble în prompt și adaugă explicit instrucțiuni ca 'typography', 'clear text', 'logo design'.", "parameters": {"type": "object", "properties": {"prompt": {"type": "string", "description": "Descrierea super detaliată a imaginii în limba engleză."}}, "required": ["prompt"]}}}
+    {
+        "type": "function", 
+        "function": {
+            "name": "genereaza_imagine", 
+            "description": "Generează o imagine HQ gratuit. Trebuie să traduci promptul în engleză la nivel expert. Pentru LOGO adaugă: 'vector graphic, clean background, sharp typography, minimalist'. Pentru BANNER adaugă: 'high quality, widescreen layout'. Dacă cere text pe imagine, pune cuvântul în ghilimele și adaugă 'text reading \"Cuvant\"'. Alege width și height potrivite: 1024x1024 pentru logo/pătrat, 1920x1080 pentru banner/peisaj, 1080x1920 pentru portret/telefon.", 
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "prompt": {"type": "string", "description": "Prompt-ul în engleză, ultra-detaliat și formatat specific nevoii."},
+                    "width": {"type": "integer", "description": "Lățimea în pixeli (ex: 1920, 1024, 1080)."},
+                    "height": {"type": "integer", "description": "Înălțimea în pixeli (ex: 1080, 1024, 1920)."}
+                }, 
+                "required": ["prompt", "width", "height"]
+            }
+        }
+    }
 ]
 
 if "current_chat_id" not in st.session_state: st.session_state.current_chat_id = None
@@ -486,8 +495,13 @@ if final_input:
                         rez_live = citeste_cod_github(url)
                     elif func_name == "genereaza_imagine":
                         prompt_img = argumente.get("prompt", "")
-                        placeholder.markdown(f"🎨 **Desenez imaginea cerută...**")
-                        rez_live = genereaza_imagine(prompt_img)
+                        
+                        # Setăm width și height din instrucțiunile primite de la AI
+                        width_img = argumente.get("width", 1024)
+                        height_img = argumente.get("height", 1024)
+                        
+                        placeholder.markdown(f"🎨 **Desenez ({width_img}x{height_img})...**")
+                        rez_live = genereaza_imagine(prompt_img, width=width_img, height=height_img)
                     else: 
                         rez_live = "Eroare: Unealtă inexistentă."
                         
