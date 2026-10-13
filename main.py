@@ -247,6 +247,32 @@ with st.sidebar:
                     st.session_state.fisiere_procesate = []
                 st.rerun()
 
+    # ====================================================================
+    # 🌟 NOUL SISTEM DE EXPORT 
+    # ====================================================================
+    st.divider()
+    st.header("📥 Export Date")
+    
+    if st.session_state.current_chat_id and len(st.session_state.mesaje) > 1:
+        export_text = f"# 🤖 Jurnal Conversație TechBot AI\n\n"
+        for msg in st.session_state.mesaje:
+            r = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")
+            c = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+            if r == "user" and c:
+                export_text += f"### 👤 Tu:\n{c}\n\n---\n"
+            elif r == "assistant" and c:
+                export_text += f"### 🤖 TechBot:\n{c}\n\n---\n"
+        
+        st.download_button(
+            label="📄 Descarcă toată discuția (.md)",
+            data=export_text,
+            file_name=f"Conversatie_TechBot_{uuid.uuid4().hex[:6]}.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
+    else:
+        st.caption("Discută cu bot-ul pentru a putea exporta conversația.")
+
 # Desenează mesajele din istoric
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
@@ -262,7 +288,7 @@ for idx, msg in enumerate(st.session_state.mesaje):
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
 # ====================================================================
-# --- ZONA DE INSTRUMENTE (Fișiere și Noul Microfon Nativ) ---
+# --- ZONA DE INSTRUMENTE (La baza ecranului) ---
 # ====================================================================
 st.write("") 
 col_file, col_voice, col_empty = st.columns([2, 2, 6])
@@ -273,12 +299,10 @@ with col_file:
 
 with col_voice:
     with st.popover("🎙️ Mesaj Vocal", help="Înregistrează un mesaj audio"):
-        # Funcția oficială Streamlit (fără bug-uri și cu un design vizual modern)
         audio_incarcat = st.audio_input("Înregistrează mesajul tău:", label_visibility="collapsed")
 
 needs_rerun = False
 
-# Procesare Fișiere atașate
 if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
     text_extras = citeste_fisier(fisier_incarcat)
     
@@ -302,22 +326,20 @@ user_text = st.chat_input("Scrie mesajul tău...")
 if user_text:
     final_input = user_text
 
-# Procesare Audio Oficial Nativ
 if audio_incarcat and audio_incarcat.file_id not in st.session_state.fisiere_procesate:
     with st.spinner("🎙️ Ascult și procesez mesajul vocal..."):
         try:
             transcription = client.audio.transcriptions.create(
-                file=("audio.wav", audio_incarcat.getvalue()), # Trimitem sunetul către Groq Whisper
+                file=("audio.wav", audio_incarcat.getvalue()), 
                 model="whisper-large-v3",
                 language="ro" 
             )
             if transcription.text:
                 final_input = transcription.text
-                st.session_state.fisiere_procesate.append(audio_incarcat.file_id) # Memorăm ca să nu îl proceseze de 2 ori
+                st.session_state.fisiere_procesate.append(audio_incarcat.file_id) 
         except Exception as e:
             st.error(f"Eroare la procesarea vocii. Verifică setările microfonului.")
 
-# Dacă avem un mesaj gata (scris sau dictat vocal)
 if final_input:
     este_conversatie_noua = False
     if st.session_state.current_chat_id is None:
