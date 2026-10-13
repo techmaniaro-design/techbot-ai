@@ -123,7 +123,7 @@ def actualizeaza_titlu_conversatie(chat_id, noul_titlu):
     try:
         supabase.table("chats").update({"title": noul_titlu}).eq("id", chat_id).execute()
     except Exception as e:
-        print(f"Eroare la actualizare titlu: {e}")
+        pass
 
 def salveaza_mesaj_db(chat_id, role, content):
     try:
@@ -144,7 +144,7 @@ def sterge_conversatie(chat_id):
         supabase.table("chat_history").delete().eq("chat_id", chat_id).execute()
         supabase.table("chats").delete().eq("id", chat_id).execute()
     except Exception as e: 
-        print(f"Eroare la ștergere: {e}")
+        pass
 
 def citeste_fisier(uploaded_file):
     nume = uploaded_file.name.lower()
@@ -248,6 +248,7 @@ with st.sidebar:
                     st.session_state.fisiere_procesate = []
                 st.rerun()
 
+# Desenează mesajele din istoric
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
 
@@ -262,19 +263,23 @@ for idx, msg in enumerate(st.session_state.mesaje):
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
 # ====================================================================
-# --- ZONA DE INSTRUMENTE (Atașamente și Voce) ---
+# --- ZONA DE INSTRUMENTE (La baza ecranului) ---
 # ====================================================================
-col_file, col_voice = st.columns(2)
+st.write("") # Spațiu de respirat
+col_file, col_voice, col_empty = st.columns([2, 2, 6])
 
 with col_file:
-    with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
+    with st.popover("📎 Atașează un fișier", help="PDF, Word, TXT sau Imagini"):
         fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
 
 with col_voice:
-    with st.popover("🎙️ Mesaj Vocal", help="Înregistrează un mesaj audio"):
-        audio_info = mic_recorder(start_prompt="🔴 Începe Înregistrarea", stop_prompt="⬛ Oprește", key="recorder_voce")
+    # AICI E REZOLVAREA: Microfonul nu mai e ascuns în popover! 
+    # Apare direct sub formă de buton vizibil lângă atașamente.
+    audio_info = mic_recorder(start_prompt="🎙️ Mesaj Vocal", stop_prompt="⬛ Oprește", key="recorder_voce")
 
 needs_rerun = False
+
+# Verificăm dacă a fost încărcat un fișier
 if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
     text_extras = citeste_fisier(fisier_incarcat)
     
@@ -298,22 +303,22 @@ user_text = st.chat_input("Scrie mesajul tău...")
 if user_text:
     final_input = user_text
 
-# Verificăm dacă avem o înregistrare vocală nouă
+# Verificăm dacă a fost înregistrat un mesaj vocal
 if audio_info and audio_info['id'] != st.session_state.get('last_audio_id'):
     st.session_state['last_audio_id'] = audio_info['id']
     with st.spinner("🎙️ Ascult și procesez mesajul vocal..."):
         try:
-            # Apelăm inteligența Whisper de la Groq pentru a transcrie sunetul în text
             transcription = client.audio.transcriptions.create(
                 file=("audio.wav", audio_info['bytes']),
                 model="whisper-large-v3",
-                language="ro" # Îi spunem să se aștepte la limba română
+                language="ro" 
             )
             if transcription.text:
                 final_input = transcription.text
         except Exception as e:
-            st.error(f"Eroare la procesarea vocii: S-a atins limita sau fișierul este invalid.")
+            st.error(f"Eroare la procesarea vocii. Te rog încearcă din nou.")
 
+# Dacă avem text (scris sau dictat), îl trimitem către AI
 if final_input:
     este_conversatie_noua = False
     if st.session_state.current_chat_id is None:
