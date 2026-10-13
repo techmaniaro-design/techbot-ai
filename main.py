@@ -241,6 +241,7 @@ with st.sidebar:
                     st.session_state.fisiere_procesate = []
                 st.rerun()
 
+# Desenează mesajele din istoric
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
 
@@ -254,6 +255,7 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
+# Popover pentru fișiere
 with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
     fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
 
@@ -271,6 +273,7 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
     st.session_state.fisiere_procesate.append(fisier_incarcat.name)
     needs_rerun = True
 
+# CHAT INPUT-ul
 if user_input := st.chat_input("Scrie mesajul tău..."):
     if st.session_state.current_chat_id is None:
         titlu_scurt = user_input[:20] + "..." if len(user_input) > 20 else user_input
@@ -289,7 +292,6 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             while True:
                 mesaje_de_trimis = [st.session_state.mesaje[0]] + st.session_state.mesaje[-4:] if len(st.session_state.mesaje) > 5 else st.session_state.mesaje
                 
-                # ADĂUGAT: stream=True pentru efect live!
                 response = client.chat.completions.create(
                     model="openai/gpt-oss-120b", 
                     messages=mesaje_de_trimis, 
@@ -304,12 +306,10 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                 for chunk in response:
                     delta = chunk.choices[0].delta
                     
-                    # Dacă primește text de la AI, îl afișează imediat
                     if delta.content:
                         chunk_reply += delta.content
                         placeholder.markdown(chunk_reply + "▌")
                         
-                    # Dacă AI-ul vrea să folosească o unealtă, memorează fragmentele
                     if delta.tool_calls:
                         for tc_chunk in delta.tool_calls:
                             idx = tc_chunk.index
@@ -325,16 +325,13 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                                 if tc_chunk.function.arguments:
                                     tool_calls_dict[idx]["function"]["arguments"] += tc_chunk.function.arguments
 
-                # Șterge cursorul la finalul textului
                 if chunk_reply:
                     placeholder.markdown(chunk_reply)
                 
-                # Dacă AI-ul nu a folosit unelte, a terminat.
                 if not tool_calls_dict:
                     bot_reply = chunk_reply
                     break
                 
-                # Procesarea uneltelor
                 tool_calls_list = list(tool_calls_dict.values())
                 st.session_state.mesaje.append({
                     "role": "assistant",
@@ -369,9 +366,12 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             st.session_state.mesaje.append({"role": "assistant", "content": bot_reply})
             salveaza_mesaj_db(st.session_state.current_chat_id, "assistant", bot_reply)
             
+            # ADĂUGAT: Afișăm butonul de salvare IMEDIAT, fără să mai oprim/resetam ecranul!
+            st.download_button("💾 Salvează Răspunsul", data=bot_reply, file_name=f"raspuns_{len(st.session_state.mesaje)}.txt", key=f"dl_live_{uuid.uuid4().hex[:6]}")
+            
         except Exception as e:
             placeholder.markdown(f"⚠️ Eroare critică la generare: S-a atins limita serverului sau ai picat netul.")
             
-    st.rerun()
+    # AM ȘTERS st.rerun() CARE BLOCA TASTA ENTER. Acum funcționează perfect!
     
 if needs_rerun: st.rerun()
