@@ -132,12 +132,9 @@ def incarca_istoric_db(chat_id):
         return response.data
     except Exception: return []
 
-# Funcție NOUĂ pentru ștergerea conversațiilor
 def sterge_conversatie(chat_id):
     try:
-        # Ștergem întâi mesajele asociate
         supabase.table("chat_history").delete().eq("chat_id", chat_id).execute()
-        # Apoi ștergem conversația principală
         supabase.table("chats").delete().eq("id", chat_id).execute()
     except Exception as e: 
         print(f"Eroare la ștergere: {e}")
@@ -222,8 +219,8 @@ with st.sidebar:
     
     lista_conversatii = obtine_lista_conversatii()
     for conv in lista_conversatii:
-        # Împărțim spațiul din stânga în două coloane (una mare pentru text, una mică pentru butonul de ștergere)
-        col_titlu, col_sterge = st.columns([0.85, 0.15])
+        # AICI S-A FĂCUT MODIFICAREA: Proporții mai mari pentru butonul de ștergere
+        col_titlu, col_sterge = st.columns([0.75, 0.25])
         
         with col_titlu:
             if st.button(conv["title"], key=f"load_{conv['id']}", use_container_width=True):
@@ -239,7 +236,6 @@ with st.sidebar:
         with col_sterge:
             if st.button("🗑️", key=f"del_{conv['id']}", help="Șterge conversația"):
                 sterge_conversatie(conv["id"])
-                # Dacă ștergi fix conversația în care te afli acum, golim ecranul
                 if st.session_state.current_chat_id == conv["id"]:
                     st.session_state.current_chat_id = None
                     st.session_state.mesaje = []
