@@ -235,7 +235,6 @@ with st.sidebar:
         with col_sterge:
             if st.button("🗑️", key=f"del_{conv['id']}", help="Șterge", use_container_width=True):
                 sterge_conversatie(conv["id"])
-                # REZOLVARE: Forțăm conversia în string (text) pentru a potrivi perfect ID-urile
                 if str(st.session_state.current_chat_id) == str(conv["id"]):
                     st.session_state.current_chat_id = None
                     st.session_state.mesaje = []
@@ -284,49 +283,94 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
     
     with st.chat_message("assistant"):
         placeholder = st.empty()
-        placeholder.markdown("Gândesc...")
         
         try:
             bot_reply = ""
             while True:
                 mesaje_de_trimis = [st.session_state.mesaje[0]] + st.session_state.mesaje[-4:] if len(st.session_state.mesaje) > 5 else st.session_state.mesaje
                 
-                response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=mesaje_de_trimis, tools=tools, tool_choice="auto")
-                msg_curent = response.choices[0].message
+                # ADĂUGAT: stream=True pentru efect live!
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-120b", 
+                    messages=mesaje_de_trimis, 
+                    tools=tools, 
+                    tool_choice="auto",
+                    stream=True 
+                )
                 
-                if not msg_curent.tool_calls:
-                    bot_reply = msg_curent.content
+                chunk_reply = ""
+                tool_calls_dict = {}
+                
+                for chunk in response:
+                    delta = chunk.choices[0].delta
+                    
+                    # Dacă primește text de la AI, îl afișează imediat
+                    if delta.content:
+                        chunk_reply += delta.content
+                        placeholder.markdown(chunk_reply + "▌")
+                        
+                    # Dacă AI-ul vrea să folosească o unealtă, memorează fragmentele
+                    if delta.tool_calls:
+                        for tc_chunk in delta.tool_calls:
+                            idx = tc_chunk.index
+                            if idx not in tool_calls_dict:
+                                tool_calls_dict[idx] = {
+                                    "id": tc_chunk.id, 
+                                    "type": "function", 
+                                    "function": {"name": tc_chunk.function.name or "", "arguments": tc_chunk.function.arguments or ""}
+                                }
+                            else:
+                                if tc_chunk.function.name:
+                                    tool_calls_dict[idx]["function"]["name"] += tc_chunk.function.name
+                                if tc_chunk.function.arguments:
+                                    tool_calls_dict[idx]["function"]["arguments"] += tc_chunk.function.arguments
+
+                # Șterge cursorul la finalul textului
+                if chunk_reply:
+                    placeholder.markdown(chunk_reply)
+                
+                # Dacă AI-ul nu a folosit unelte, a terminat.
+                if not tool_calls_dict:
+                    bot_reply = chunk_reply
                     break
                 
-                dict_curent = {"role": msg_curent.role, "content": msg_curent.content}
-                if msg_curent.tool_calls:
-                    dict_curent["tool_calls"] = [{"id": t.id, "type": t.type, "function": {"name": t.function.name, "arguments": t.function.arguments}} for t in msg_curent.tool_calls]
-                st.session_state.mesaje.append(dict_curent)
+                # Procesarea uneltelor
+                tool_calls_list = list(tool_calls_dict.values())
+                st.session_state.mesaje.append({
+                    "role": "assistant",
+                    "content": chunk_reply,
+                    "tool_calls": tool_calls_list
+                })
                 
-                for tool_call in msg_curent.tool_calls:
-                    argumente = json.loads(tool_call.function.arguments)
-                    
-                    if tool_call.function.name == "cauta_pe_internet":
-                        query = argumente.get("query")
+                for tc in tool_calls_list:
+                    func_name = tc["function"]["name"]
+                    try:
+                        argumente = json.loads(tc["function"]["arguments"])
+                    except:
+                        argumente = {}
+                        
+                    if func_name == "cauta_pe_internet":
+                        query = argumente.get("query", "")
                         placeholder.markdown(f"🔄 **Caut pe net:** `{query}`...")
                         rez_live = cauta_pe_internet(query)
-                    elif tool_call.function.name == "citeste_cod_github":
-                        url = argumente.get("url")
+                    elif func_name == "citeste_cod_github":
+                        url = argumente.get("url", "")
                         placeholder.markdown(f"💻 **Citesc codul:** `{url}`...")
                         rez_live = citeste_cod_github(url)
-                    else: rez_live = "Eroare: Unealtă inexistentă."
+                    else: 
+                        rez_live = "Eroare: Unealtă inexistentă."
                         
-                    st.session_state.mesaje.append({"role": "tool", "tool_call_id": tool_call.id, "content": rez_live})
+                    st.session_state.mesaje.append({"role": "tool", "tool_call_id": tc["id"], "content": str(rez_live)})
                     
             if not bot_reply or not bot_reply.strip():
                 bot_reply = "⚠️ Eroare internă AI: Modelul a returnat un text gol. Te rog trimite mesajul din nou."
+                placeholder.markdown(bot_reply)
                 
-            placeholder.markdown(bot_reply)
             st.session_state.mesaje.append({"role": "assistant", "content": bot_reply})
             salveaza_mesaj_db(st.session_state.current_chat_id, "assistant", bot_reply)
             
         except Exception as e:
-            placeholder.markdown(f"⚠️ Eroare critică: S-a atins limita de sistem. Te rugăm să începi o conversație nouă folosind butonul din stânga.")
+            placeholder.markdown(f"⚠️ Eroare critică la generare: S-a atins limita serverului sau ai picat netul.")
             
     st.rerun()
     
