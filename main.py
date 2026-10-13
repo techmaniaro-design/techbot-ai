@@ -14,6 +14,7 @@ from openai import OpenAI
 from duckduckgo_search import DDGS
 from supabase import create_client, Client
 import extra_streamlit_components as stx
+from streamlit_mic_recorder import mic_recorder
 
 # --- CONFIGURARE INIȚIALĂ ---
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
@@ -30,7 +31,7 @@ if "prima_incarcare" not in st.session_state:
     st.rerun()
 
 st.title("🤖 TechBot AI")
-st.caption("Asistent cu memorie privată, căutare Web și analiză de Documente.")
+st.caption("Asistent cu memorie privată, căutare Web, analiză Documente și comenzi Vocale.")
 
 url_baza_date = "https://yunipdkppxqnnrjebdtc.supabase.co" 
 cheie_baza_date = st.secrets["SUPABASE_KEY"]
@@ -260,15 +261,24 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
-with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
-    fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
+# ====================================================================
+# --- ZONA DE INSTRUMENTE (Atașamente și Voce) ---
+# ====================================================================
+col_file, col_voice = st.columns(2)
+
+with col_file:
+    with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
+        fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
+
+with col_voice:
+    with st.popover("🎙️ Mesaj Vocal", help="Înregistrează un mesaj audio"):
+        audio_info = mic_recorder(start_prompt="🔴 Începe Înregistrarea", stop_prompt="⬛ Oprește", key="recorder_voce")
 
 needs_rerun = False
 if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
     text_extras = citeste_fisier(fisier_incarcat)
     
     titlu_generat = f"Analiză: {fisier_incarcat.name[:15]}..."
-    
     if st.session_state.current_chat_id is None:
         st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=titlu_generat)
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
@@ -279,7 +289,32 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
     st.session_state.fisiere_procesate.append(fisier_incarcat.name)
     needs_rerun = True
 
-if user_input := st.chat_input("Scrie mesajul tău..."):
+# ====================================================================
+# --- PROCESARE INPUT (Text sau Voce) ---
+# ====================================================================
+final_input = None
+user_text = st.chat_input("Scrie mesajul tău...")
+
+if user_text:
+    final_input = user_text
+
+# Verificăm dacă avem o înregistrare vocală nouă
+if audio_info and audio_info['id'] != st.session_state.get('last_audio_id'):
+    st.session_state['last_audio_id'] = audio_info['id']
+    with st.spinner("🎙️ Ascult și procesez mesajul vocal..."):
+        try:
+            # Apelăm inteligența Whisper de la Groq pentru a transcrie sunetul în text
+            transcription = client.audio.transcriptions.create(
+                file=("audio.wav", audio_info['bytes']),
+                model="whisper-large-v3",
+                language="ro" # Îi spunem să se aștepte la limba română
+            )
+            if transcription.text:
+                final_input = transcription.text
+        except Exception as e:
+            st.error(f"Eroare la procesarea vocii: S-a atins limita sau fișierul este invalid.")
+
+if final_input:
     este_conversatie_noua = False
     if st.session_state.current_chat_id is None:
         este_conversatie_noua = True
@@ -287,7 +322,7 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
         
         try:
-            prompt_titlu = f"Generează un titlu de maxim 4 cuvinte, descriptiv și în română, pentru această întrebare: '{user_input}'. Oferă DOAR titlul, fără ghilimele sau explicații."
+            prompt_titlu = f"Generează un titlu de maxim 4 cuvinte, descriptiv și în română, pentru această întrebare: '{final_input}'. Oferă DOAR titlul, fără ghilimele sau explicații."
             raspuns_titlu = client.chat.completions.create(
                 model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt_titlu}],
@@ -295,14 +330,14 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             )
             titlu_final = raspuns_titlu.choices[0].message.content.strip().replace('"', '')
             if not titlu_final:
-                titlu_final = user_input[:20] + "..."
+                titlu_final = final_input[:20] + "..."
             actualizeaza_titlu_conversatie(st.session_state.current_chat_id, titlu_final)
         except Exception:
-            actualizeaza_titlu_conversatie(st.session_state.current_chat_id, user_input[:20] + "...")
+            actualizeaza_titlu_conversatie(st.session_state.current_chat_id, final_input[:20] + "...")
 
-    with st.chat_message("user"): st.markdown(user_input)
-    st.session_state.mesaje.append({"role": "user", "content": user_input})
-    salveaza_mesaj_db(st.session_state.current_chat_id, "user", user_input) 
+    with st.chat_message("user"): st.markdown(final_input)
+    st.session_state.mesaje.append({"role": "user", "content": final_input})
+    salveaza_mesaj_db(st.session_state.current_chat_id, "user", final_input) 
     
     with st.chat_message("assistant"):
         placeholder = st.empty()
@@ -310,45 +345,37 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         try:
             bot_reply = ""
             
-            # ==========================================================
-            # 🌟 NOUL SISTEM DE MEMORIE INFINITĂ (SMART CONTEXT)
-            # ==========================================================
-            mesaje_de_trimis = [st.session_state.mesaje[0]] # Punem regulile de bază (promptul sistem)
+            mesaje_de_trimis = [st.session_state.mesaje[0]] 
             
             if len(st.session_state.mesaje) > 5:
-                ultimele_mesaje = st.session_state.mesaje[-4:] # Reținem intacte ultimele 4 mesaje
-                mesaje_vechi = st.session_state.mesaje[1:-4]   # Selectăm restul mesajelor mai vechi
+                ultimele_mesaje = st.session_state.mesaje[-4:] 
+                mesaje_vechi = st.session_state.mesaje[1:-4]   
                 
-                # Extragem textul brut din amintiri
                 text_vechi = ""
                 for m in mesaje_vechi:
                     r = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
                     c = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
                     if c and r in ["user", "assistant"]:
-                        text_vechi += f"{r}: {c[:200]}\n" # Trunchiem fiecare mesaj vechi ca să nu blocăm serverul
+                        text_vechi += f"{r}: {c[:200]}\n" 
                         
                 if text_vechi:
                     try:
                         placeholder.markdown("🧠 *Răsfoiesc amintirile vechi...*")
-                        # Folosim modelul llama3 (fulgerător de rapid) doar ca să ne facă un mini-rezumat
                         raspuns_rezumat = client.chat.completions.create(
                             model="llama3-8b-8192", 
                             messages=[{"role": "user", "content": f"Rezumă extrem de scurt (1-2 propoziții în română) ideea principală a acestei discuții trecute, ca să îmi reamintesc contextul:\n\n{text_vechi}"}],
                             max_tokens=150
                         )
                         rezumat_memorie = raspuns_rezumat.choices[0].message.content
-                        
-                        # Inserăm rezumatul invizibil direct în "creierul" botului
                         mesaje_de_trimis.append({"role": "system", "content": f"Context din trecutul conversației: {rezumat_memorie}"})
                     except Exception:
-                        pass # Dacă ceva nu merge, pur și simplu continuăm fără rezumat
+                        pass 
                         
                 mesaje_de_trimis.extend(ultimele_mesaje)
             else:
                 mesaje_de_trimis = list(st.session_state.mesaje)
                 
             placeholder.markdown("Gândesc...")
-            # ==========================================================
             
             while True:
                 response = client.chat.completions.create(
@@ -393,13 +420,11 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                 
                 tool_calls_list = list(tool_calls_dict.values())
                 
-                # Salvăm pentru a fi afișat în interfață
                 st.session_state.mesaje.append({
                     "role": "assistant",
                     "content": chunk_reply,
                     "tool_calls": tool_calls_list
                 })
-                # Salvăm temporar și în lista activă pentru a le trimite mai departe către API
                 mesaje_de_trimis.append({
                     "role": "assistant",
                     "content": chunk_reply,
