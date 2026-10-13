@@ -118,7 +118,6 @@ def creeaza_conversatie_noua(titlu="Conversație Nouă"):
         return response.data[0]['id']
     except Exception: return None
 
-# 🌟 Funcție nouă: Actualizarea titlului în baza de date
 def actualizeaza_titlu_conversatie(chat_id, noul_titlu):
     try:
         supabase.table("chats").update({"title": noul_titlu}).eq("id", chat_id).execute()
@@ -268,7 +267,6 @@ needs_rerun = False
 if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
     text_extras = citeste_fisier(fisier_incarcat)
     
-    # 🌟 Găsim un titlu relevant din numele fișierului
     titlu_generat = f"Analiză: {fisier_incarcat.name[:15]}..."
     
     if st.session_state.current_chat_id is None:
@@ -282,14 +280,12 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
     needs_rerun = True
 
 if user_input := st.chat_input("Scrie mesajul tău..."):
-    # 🌟 Aici este logica nouă: generăm un titlu la prima interacțiune 
     este_conversatie_noua = False
     if st.session_state.current_chat_id is None:
         este_conversatie_noua = True
         st.session_state.current_chat_id = creeaza_conversatie_noua(titlu="Se generează titlul...")
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
         
-        # Generăm titlul în fundal cerând AI-ului un rezumat ultra-scurt
         try:
             prompt_titlu = f"Generează un titlu de maxim 4 cuvinte, descriptiv și în română, pentru această întrebare: '{user_input}'. Oferă DOAR titlul, fără ghilimele sau explicații."
             raspuns_titlu = client.chat.completions.create(
@@ -300,7 +296,6 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             titlu_final = raspuns_titlu.choices[0].message.content.strip().replace('"', '')
             if not titlu_final:
                 titlu_final = user_input[:20] + "..."
-                
             actualizeaza_titlu_conversatie(st.session_state.current_chat_id, titlu_final)
         except Exception:
             actualizeaza_titlu_conversatie(st.session_state.current_chat_id, user_input[:20] + "...")
@@ -314,9 +309,48 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         
         try:
             bot_reply = ""
-            while True:
-                mesaje_de_trimis = [st.session_state.mesaje[0]] + st.session_state.mesaje[-4:] if len(st.session_state.mesaje) > 5 else st.session_state.mesaje
+            
+            # ==========================================================
+            # 🌟 NOUL SISTEM DE MEMORIE INFINITĂ (SMART CONTEXT)
+            # ==========================================================
+            mesaje_de_trimis = [st.session_state.mesaje[0]] # Punem regulile de bază (promptul sistem)
+            
+            if len(st.session_state.mesaje) > 5:
+                ultimele_mesaje = st.session_state.mesaje[-4:] # Reținem intacte ultimele 4 mesaje
+                mesaje_vechi = st.session_state.mesaje[1:-4]   # Selectăm restul mesajelor mai vechi
                 
+                # Extragem textul brut din amintiri
+                text_vechi = ""
+                for m in mesaje_vechi:
+                    r = m.get("role", "") if isinstance(m, dict) else getattr(m, "role", "")
+                    c = m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "")
+                    if c and r in ["user", "assistant"]:
+                        text_vechi += f"{r}: {c[:200]}\n" # Trunchiem fiecare mesaj vechi ca să nu blocăm serverul
+                        
+                if text_vechi:
+                    try:
+                        placeholder.markdown("🧠 *Răsfoiesc amintirile vechi...*")
+                        # Folosim modelul llama3 (fulgerător de rapid) doar ca să ne facă un mini-rezumat
+                        raspuns_rezumat = client.chat.completions.create(
+                            model="llama3-8b-8192", 
+                            messages=[{"role": "user", "content": f"Rezumă extrem de scurt (1-2 propoziții în română) ideea principală a acestei discuții trecute, ca să îmi reamintesc contextul:\n\n{text_vechi}"}],
+                            max_tokens=150
+                        )
+                        rezumat_memorie = raspuns_rezumat.choices[0].message.content
+                        
+                        # Inserăm rezumatul invizibil direct în "creierul" botului
+                        mesaje_de_trimis.append({"role": "system", "content": f"Context din trecutul conversației: {rezumat_memorie}"})
+                    except Exception:
+                        pass # Dacă ceva nu merge, pur și simplu continuăm fără rezumat
+                        
+                mesaje_de_trimis.extend(ultimele_mesaje)
+            else:
+                mesaje_de_trimis = list(st.session_state.mesaje)
+                
+            placeholder.markdown("Gândesc...")
+            # ==========================================================
+            
+            while True:
                 response = client.chat.completions.create(
                     model="openai/gpt-oss-120b", 
                     messages=mesaje_de_trimis, 
@@ -358,7 +392,15 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                     break
                 
                 tool_calls_list = list(tool_calls_dict.values())
+                
+                # Salvăm pentru a fi afișat în interfață
                 st.session_state.mesaje.append({
+                    "role": "assistant",
+                    "content": chunk_reply,
+                    "tool_calls": tool_calls_list
+                })
+                # Salvăm temporar și în lista activă pentru a le trimite mai departe către API
+                mesaje_de_trimis.append({
                     "role": "assistant",
                     "content": chunk_reply,
                     "tool_calls": tool_calls_list
@@ -383,6 +425,7 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
                         rez_live = "Eroare: Unealtă inexistentă."
                         
                     st.session_state.mesaje.append({"role": "tool", "tool_call_id": tc["id"], "content": str(rez_live)})
+                    mesaje_de_trimis.append({"role": "tool", "tool_call_id": tc["id"], "content": str(rez_live)})
                     
             if not bot_reply or not bot_reply.strip():
                 bot_reply = "⚠️ Eroare internă AI: Modelul a returnat un text gol. Te rog trimite mesajul din nou."
@@ -393,7 +436,6 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             
             st.download_button("💾 Salvează Răspunsul", data=bot_reply, file_name=f"raspuns_{len(st.session_state.mesaje)}.txt", key=f"dl_live_{uuid.uuid4().hex[:6]}")
             
-            # 🌟 Dacă a fost un chat nou, forțăm o reîncărcare la final pentru a afișa titlul frumos în meniul din stânga!
             if este_conversatie_noua:
                 st.rerun()
                 
