@@ -8,3 +8,4 @@ docx2txt
 pytesseract
 Pillow
 extra-streamlit-components
+streamlit-mic-recorder
