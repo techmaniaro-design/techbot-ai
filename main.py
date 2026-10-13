@@ -19,7 +19,7 @@ import extra_streamlit_components as stx
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
 
 # ====================================================================
-# --- HACK PENTRU REFRESH ȘI COOKIES ---
+# --- MANAGER DE COOKIES ---
 # ====================================================================
 with st.sidebar:
     cookie_manager = stx.CookieManager(key="cookie_manager")
@@ -74,14 +74,11 @@ if st.session_state.user_id is None:
             if st.button("Loghează-te", use_container_width=True):
                 try:
                     res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
-                    
                     cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60, key="login_uid")
                     cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60, key="login_email")
-                    
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
                     st.session_state.is_logged_out = False 
-                    
                     time.sleep(0.5) 
                     st.rerun()
                 except Exception:
@@ -93,19 +90,15 @@ if st.session_state.user_id is None:
             if st.button("Creează Cont", use_container_width=True):
                 try:
                     res = supabase.auth.sign_up({"email": email_up, "password": pass_up})
-                    
                     cookie_manager.set("techbot_uid", res.user.id, max_age=30*24*60*60, key="reg_uid")
                     cookie_manager.set("techbot_email", res.user.email, max_age=30*24*60*60, key="reg_email")
-                    
                     st.session_state.user_id = res.user.id
                     st.session_state.user_email = res.user.email
                     st.session_state.is_logged_out = False
-                    
                     time.sleep(0.5)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Eroare la creare cont: {e}")
-                    
     st.stop() 
 
 # ====================================================================
@@ -229,7 +222,6 @@ with st.sidebar:
                 salveaza_mesaj_db(conv["id"], "system", prompt)
             st.rerun()
 
-# Desenează mesajele existente
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
 
@@ -243,7 +235,6 @@ for idx, msg in enumerate(st.session_state.mesaje):
             if role == "assistant":
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
-# Încărcare fișiere
 with st.popover("📎 Atașează un fișier", help="Fisiere PDF, Word, TXT, Scripturi sau Imagini."):
     fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
 
@@ -255,16 +246,13 @@ if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_proc
         st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=f"Analiză {fisier_incarcat.name}")
         salveaza_mesaj_db(st.session_state.current_chat_id, "system", st.session_state.mesaje[0]["content"])
     
-    mesaj_fisier = f"📄 **Am încărcat fișierul:** `{fisier_incarcat.name}`\n\n**Conținut:**\n```\n{text_extras[:15000]}\n```\n\nFolosește aceste date."
+    mesaj_fisier = f"📄 **Am încărcat fișierul:** `{fisier_incarcat.name}`\n\n**Conținut:**\n```\n{text_extras[:10000]}\n```\n\nFolosește aceste date."
     st.session_state.mesaje.append({"role": "user", "content": mesaj_fisier})
     salveaza_mesaj_db(st.session_state.current_chat_id, "user", mesaj_fisier)
     st.session_state.fisiere_procesate.append(fisier_incarcat.name)
     needs_rerun = True
 
-# Zona de chat principală
 if user_input := st.chat_input("Scrie mesajul tău..."):
-    # Dacă este o conversație nouă, doar îi generăm un ID în baza de date. 
-    # NU îi mai dăm needs_rerun = True aici ca să nu taie mesajul!
     if st.session_state.current_chat_id is None:
         titlu_scurt = user_input[:20] + "..." if len(user_input) > 20 else user_input
         st.session_state.current_chat_id = creeaza_conversatie_noua(titlu=titlu_scurt)
@@ -281,7 +269,10 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         try:
             bot_reply = ""
             while True:
-                response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=st.session_state.mesaje, tools=tools, tool_choice="auto")
+                # TRUCUL PENTRU LIMITA DE MEMORIE: Trimitem doar instrucțiunile (0) și ultimele 4 mesaje!
+                mesaje_de_trimis = [st.session_state.mesaje[0]] + st.session_state.mesaje[-4:] if len(st.session_state.mesaje) > 5 else st.session_state.mesaje
+                
+                response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=mesaje_de_trimis, tools=tools, tool_choice="auto")
                 msg_curent = response.choices[0].message
                 
                 if not msg_curent.tool_calls:
@@ -316,7 +307,8 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
             salveaza_mesaj_db(st.session_state.current_chat_id, "assistant", bot_reply)
             
         except Exception as e:
-            placeholder.markdown(f"⚠️ Eroare critică: {e}")
+            placeholder.markdown(f"⚠️ Eroare critică: S-a atins limita de sistem. Te rugăm să începi o conversație nouă folosind butonul din stânga.")
             
-# Dacă am încărcat un fișier, doar atunci facem refresh ca să procesăm bine
+    st.rerun()
+    
 if needs_rerun: st.rerun()
