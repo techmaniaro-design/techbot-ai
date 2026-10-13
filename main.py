@@ -132,6 +132,16 @@ def incarca_istoric_db(chat_id):
         return response.data
     except Exception: return []
 
+# Funcție NOUĂ pentru ștergerea conversațiilor
+def sterge_conversatie(chat_id):
+    try:
+        # Ștergem întâi mesajele asociate
+        supabase.table("chat_history").delete().eq("chat_id", chat_id).execute()
+        # Apoi ștergem conversația principală
+        supabase.table("chats").delete().eq("id", chat_id).execute()
+    except Exception as e: 
+        print(f"Eroare la ștergere: {e}")
+
 def citeste_fisier(uploaded_file):
     nume = uploaded_file.name.lower()
     try:
@@ -212,15 +222,29 @@ with st.sidebar:
     
     lista_conversatii = obtine_lista_conversatii()
     for conv in lista_conversatii:
-        if st.button(conv["title"], key=conv["id"], use_container_width=True):
-            st.session_state.current_chat_id = conv["id"]
-            st.session_state.fisiere_procesate = []
-            st.session_state.mesaje = incarca_istoric_db(conv["id"])
-            if not st.session_state.mesaje:
-                prompt = "Ești un asistent tehnic expert."
-                st.session_state.mesaje = [{"role": "system", "content": prompt}]
-                salveaza_mesaj_db(conv["id"], "system", prompt)
-            st.rerun()
+        # Împărțim spațiul din stânga în două coloane (una mare pentru text, una mică pentru butonul de ștergere)
+        col_titlu, col_sterge = st.columns([0.85, 0.15])
+        
+        with col_titlu:
+            if st.button(conv["title"], key=f"load_{conv['id']}", use_container_width=True):
+                st.session_state.current_chat_id = conv["id"]
+                st.session_state.fisiere_procesate = []
+                st.session_state.mesaje = incarca_istoric_db(conv["id"])
+                if not st.session_state.mesaje:
+                    prompt = "Ești un asistent tehnic expert."
+                    st.session_state.mesaje = [{"role": "system", "content": prompt}]
+                    salveaza_mesaj_db(conv["id"], "system", prompt)
+                st.rerun()
+                
+        with col_sterge:
+            if st.button("🗑️", key=f"del_{conv['id']}", help="Șterge conversația"):
+                sterge_conversatie(conv["id"])
+                # Dacă ștergi fix conversația în care te afli acum, golim ecranul
+                if st.session_state.current_chat_id == conv["id"]:
+                    st.session_state.current_chat_id = None
+                    st.session_state.mesaje = []
+                    st.session_state.fisiere_procesate = []
+                st.rerun()
 
 if st.session_state.current_chat_id is None and not st.session_state.mesaje:
      st.session_state.mesaje = [{"role": "system", "content": "Ești un asistent expert. Citește fișierele cu atenție și folosește-le ca bază."}]
@@ -269,7 +293,6 @@ if user_input := st.chat_input("Scrie mesajul tău..."):
         try:
             bot_reply = ""
             while True:
-                # TRUCUL PENTRU LIMITA DE MEMORIE: Trimitem doar instrucțiunile (0) și ultimele 4 mesaje!
                 mesaje_de_trimis = [st.session_state.mesaje[0]] + st.session_state.mesaje[-4:] if len(st.session_state.mesaje) > 5 else st.session_state.mesaje
                 
                 response = client.chat.completions.create(model="openai/gpt-oss-120b", messages=mesaje_de_trimis, tools=tools, tool_choice="auto")
