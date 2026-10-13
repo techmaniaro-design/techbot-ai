@@ -14,7 +14,6 @@ from openai import OpenAI
 from duckduckgo_search import DDGS
 from supabase import create_client, Client
 import extra_streamlit_components as stx
-from streamlit_mic_recorder import mic_recorder
 
 # --- CONFIGURARE INIȚIALĂ ---
 st.set_page_config(page_title="TechBot AI", page_icon="🤖", layout="wide")
@@ -263,9 +262,9 @@ for idx, msg in enumerate(st.session_state.mesaje):
                 st.download_button("💾 Salvează Răspunsul", data=content, file_name=f"raspuns_{idx}.txt", key=f"dl_{idx}")
 
 # ====================================================================
-# --- ZONA DE INSTRUMENTE (La baza ecranului) ---
+# --- ZONA DE INSTRUMENTE (Fișiere și Noul Microfon Nativ) ---
 # ====================================================================
-st.write("") # Spațiu de respirat
+st.write("") 
 col_file, col_voice, col_empty = st.columns([2, 2, 6])
 
 with col_file:
@@ -273,13 +272,13 @@ with col_file:
         fisier_incarcat = st.file_uploader("Trage fișierul aici", label_visibility="collapsed")
 
 with col_voice:
-    # AICI E REZOLVAREA: Microfonul nu mai e ascuns în popover! 
-    # Apare direct sub formă de buton vizibil lângă atașamente.
-    audio_info = mic_recorder(start_prompt="🎙️ Mesaj Vocal", stop_prompt="⬛ Oprește", key="recorder_voce")
+    with st.popover("🎙️ Mesaj Vocal", help="Înregistrează un mesaj audio"):
+        # Funcția oficială Streamlit (fără bug-uri și cu un design vizual modern)
+        audio_incarcat = st.audio_input("Înregistrează mesajul tău:", label_visibility="collapsed")
 
 needs_rerun = False
 
-# Verificăm dacă a fost încărcat un fișier
+# Procesare Fișiere atașate
 if fisier_incarcat and fisier_incarcat.name not in st.session_state.fisiere_procesate:
     text_extras = citeste_fisier(fisier_incarcat)
     
@@ -303,22 +302,22 @@ user_text = st.chat_input("Scrie mesajul tău...")
 if user_text:
     final_input = user_text
 
-# Verificăm dacă a fost înregistrat un mesaj vocal
-if audio_info and audio_info['id'] != st.session_state.get('last_audio_id'):
-    st.session_state['last_audio_id'] = audio_info['id']
+# Procesare Audio Oficial Nativ
+if audio_incarcat and audio_incarcat.file_id not in st.session_state.fisiere_procesate:
     with st.spinner("🎙️ Ascult și procesez mesajul vocal..."):
         try:
             transcription = client.audio.transcriptions.create(
-                file=("audio.wav", audio_info['bytes']),
+                file=("audio.wav", audio_incarcat.getvalue()), # Trimitem sunetul către Groq Whisper
                 model="whisper-large-v3",
                 language="ro" 
             )
             if transcription.text:
                 final_input = transcription.text
+                st.session_state.fisiere_procesate.append(audio_incarcat.file_id) # Memorăm ca să nu îl proceseze de 2 ori
         except Exception as e:
-            st.error(f"Eroare la procesarea vocii. Te rog încearcă din nou.")
+            st.error(f"Eroare la procesarea vocii. Verifică setările microfonului.")
 
-# Dacă avem text (scris sau dictat), îl trimitem către AI
+# Dacă avem un mesaj gata (scris sau dictat vocal)
 if final_input:
     este_conversatie_noua = False
     if st.session_state.current_chat_id is None:
