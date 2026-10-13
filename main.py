@@ -179,7 +179,7 @@ if "mesaje" not in st.session_state: st.session_state.mesaje = []
 if "fisiere_procesate" not in st.session_state: st.session_state.fisiere_procesate = []
 
 with st.sidebar:
-    st.caption(f"👤 Logat ca: **{st.session_state.user_email}**")
+    st.caption(f"👤 Logat ca: **{st.session_state.user_email if st.session_state.user_email else 'Utilizator'}**")
     
     with st.expander("⚙️ Setări Cont"):
         st.write("Schimbă parola contului tău:")
@@ -219,8 +219,8 @@ with st.sidebar:
     
     lista_conversatii = obtine_lista_conversatii()
     for conv in lista_conversatii:
-        # AICI S-A FĂCUT MODIFICAREA: Proporții mai mari pentru butonul de ștergere
-        col_titlu, col_sterge = st.columns([0.75, 0.25])
+        # Ajustat proporțiile pentru afișare corectă a butonului pe ecrane mici
+        col_titlu, col_sterge = st.columns([0.65, 0.35])
         
         with col_titlu:
             if st.button(conv["title"], key=f"load_{conv['id']}", use_container_width=True):
@@ -234,7 +234,7 @@ with st.sidebar:
                 st.rerun()
                 
         with col_sterge:
-            if st.button("🗑️", key=f"del_{conv['id']}", help="Șterge conversația"):
+            if st.button("🗑️", key=f"del_{conv['id']}", help="Șterge", use_container_width=True):
                 sterge_conversatie(conv["id"])
                 if st.session_state.current_chat_id == conv["id"]:
                     st.session_state.current_chat_id = None
