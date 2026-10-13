@@ -219,7 +219,6 @@ with st.sidebar:
     
     lista_conversatii = obtine_lista_conversatii()
     for conv in lista_conversatii:
-        # Ajustat proporțiile pentru afișare corectă a butonului pe ecrane mici
         col_titlu, col_sterge = st.columns([0.65, 0.35])
         
         with col_titlu:
@@ -236,7 +235,8 @@ with st.sidebar:
         with col_sterge:
             if st.button("🗑️", key=f"del_{conv['id']}", help="Șterge", use_container_width=True):
                 sterge_conversatie(conv["id"])
-                if st.session_state.current_chat_id == conv["id"]:
+                # REZOLVARE: Forțăm conversia în string (text) pentru a potrivi perfect ID-urile
+                if str(st.session_state.current_chat_id) == str(conv["id"]):
                     st.session_state.current_chat_id = None
                     st.session_state.mesaje = []
                     st.session_state.fisiere_procesate = []
